@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import { Compass } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -82,6 +83,22 @@ const HospitalResourcesScreen = dynamic(
 );
 const ClinicalMessagingHub = dynamic(
   () => import("@/components/messaging/ClinicalMessagingHub").then((m) => m.ClinicalMessagingHub),
+  { loading: PageLoader }
+);
+const ChapaCheckoutScreen = dynamic(
+  () => import("@/components/billing/ChapaCheckoutScreen").then((m) => m.ChapaCheckoutScreen),
+  { loading: PageLoader }
+);
+const SubscriptionScreen = dynamic(
+  () => import("@/components/billing/SubscriptionScreen").then((m) => m.SubscriptionScreen),
+  { loading: PageLoader }
+);
+const MediaLibraryScreen = dynamic(
+  () => import("@/components/billing/MediaLibraryScreen").then((m) => m.MediaLibraryScreen),
+  { loading: PageLoader }
+);
+const PlatformAdminScreen = dynamic(
+  () => import("@/components/billing/PlatformAdminScreen").then((m) => m.PlatformAdminScreen),
   { loading: PageLoader }
 );
 
@@ -254,6 +271,18 @@ export default function ModuleScreenPage() {
       }
       if (entry.screen === "clinical-messages") {
         return <ClinicalMessagingHub />;
+      }
+      if (entry.screen === "chapa-checkout") {
+        return <Suspense fallback={<PageLoader />}><ChapaCheckoutScreen title={title} /></Suspense>;
+      }
+      if (entry.screen === "subscription") {
+        return <Suspense fallback={<PageLoader />}><SubscriptionScreen title={title} /></Suspense>;
+      }
+      if (entry.screen === "media-library") {
+        return <Suspense fallback={<PageLoader />}><MediaLibraryScreen title={title} /></Suspense>;
+      }
+      if (entry.screen === "platform-admin") {
+        return <Suspense fallback={<PageLoader />}><PlatformAdminScreen title={title} /></Suspense>;
       }
       if (entry.screen === "permissions") {
         return (

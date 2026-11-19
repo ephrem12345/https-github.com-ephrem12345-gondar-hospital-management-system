@@ -120,9 +120,9 @@ export class ChapaPaymentService {
         invoiceId: invoice.id,
         method: PaymentMethod.CHAPA,
         status: PaymentStatus.PENDING,
-        createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+        receivedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { receivedAt: "desc" },
     });
     if (pending?.checkoutUrl) {
       return {
@@ -174,7 +174,7 @@ export class ChapaPaymentService {
         lastName: invoice.patient.lastName,
         returnUrl,
         description: `Payment for Invoice #${invoice.invoiceNumber}`,
-        metadata: { kind: "INVOICE", hospitalId: invoice.hospitalId, invoiceId: invoice.id },
+        metadata: { kind: "INVOICE", hospitalId: invoice.hospitalId ?? "", invoiceId: invoice.id },
       });
       checkoutUrl = result.checkoutUrl;
       await this.db.payment.update({
@@ -186,11 +186,11 @@ export class ChapaPaymentService {
         where: { id: payment.id },
         data: { status: PaymentStatus.FAILED, failureReason: error instanceof Error ? error.message.slice(0, 300) : "Gateway error" },
       });
-      await this.audit({ action: "PAYMENT_INITIATED", outcome: "FAILED", paymentId: payment.id, hospitalId: invoice.hospitalId, actorId: input.actor.userId });
+      await this.audit({ action: "PAYMENT_INITIATED", outcome: "FAILED", paymentId: payment.id, hospitalId: invoice.hospitalId ?? undefined, actorId: input.actor.userId });
       throw error;
     }
 
-    await this.audit({ action: "PAYMENT_INITIATED", outcome: "SUCCESS", paymentId: payment.id, hospitalId: invoice.hospitalId, actorId: input.actor.userId, detail: txRef });
+    await this.audit({ action: "PAYMENT_INITIATED", outcome: "SUCCESS", paymentId: payment.id, hospitalId: invoice.hospitalId ?? undefined, actorId: input.actor.userId, detail: txRef });
     return {
       txRef,
       receiptNumber,
@@ -250,7 +250,7 @@ export class ChapaPaymentService {
       data: { verifiedAt: now, status: PaymentStatus.VALIDATED, gatewayFee: verification.fee ?? 0, rawCallbackData: JSON.stringify(verification.raw).slice(0, 60_000) },
     });
     if (claimed.count === 0) {
-      const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+      const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id }, include: { invoice: true } });
       await this.audit({ action: "PAYMENT_VERIFIED", outcome: "ALREADY_SETTLED", paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined });
       return this.settledResult(settled);
     }
@@ -280,7 +280,7 @@ export class ChapaPaymentService {
       hospitalId: payment.hospitalId ?? undefined,
       detail: `${payment.amount} ${payment.currency} applied to ${payment.invoiceId}`,
     });
-    const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id }, include: { invoice: true } });
     return this.settledResult(settled);
   }
 

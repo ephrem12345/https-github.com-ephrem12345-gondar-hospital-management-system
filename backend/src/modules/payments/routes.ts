@@ -32,7 +32,7 @@ export function paymentRoutes(service: ChapaPaymentService) {
       const reference = getParam(request.params.reference);
       if (!reference) throw new HttpError(400, "Reference is required", "VALIDATION_ERROR");
       const data = await service.verifyPayment(reference, request.actor);
-      response.json({ success: data.success, data });
+      response.json({ success: true, data });
     } catch (error) { next(error); }
   });
 

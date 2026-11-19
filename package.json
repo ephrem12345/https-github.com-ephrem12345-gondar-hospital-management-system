@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:3002": "next dev -p 3002",
+    "dev": "next dev -p 3000",
     "dev:safe": "powershell -ExecutionPolicy Bypass -File ./start-ghms.ps1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3000",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run"
   },

@@ -1,6 +1,7 @@
 import { createApp, env } from "./app.js";
 import { logger } from "./config/logger.js";
 import { prisma } from "./config/prisma.js";
+import { startSubscriptionJobs } from "./modules/saas/jobs.js";
 
 let app: ReturnType<typeof createApp>;
 try {
@@ -11,6 +12,7 @@ try {
   process.exit(1);
 }
 
+const stopJobs = startSubscriptionJobs(prisma);
 const server = app.listen(env.PORT);
 
 server.on("listening", () => {
@@ -64,6 +66,7 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 
 async function shutdown(signal: string) {
   logger.info({ signal }, "Shutting down GHMS API");
+  stopJobs();
   server.close(async (error) => {
     if (error) logger.error({ err: error }, "HTTP server close failed");
     await prisma.$disconnect();

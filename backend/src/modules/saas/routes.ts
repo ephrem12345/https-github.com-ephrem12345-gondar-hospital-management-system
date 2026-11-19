@@ -98,7 +98,7 @@ export function saasRoutes(service: SaasService, publicLimiter: RequestHandler =
   router.get("/saas/subscriptions/verify/:txRef", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
     try {
       const data = await service.verifySubscriptionPayment(request.actor!, getParam(request.params.txRef));
-      response.json({ success: data.success, data });
+      response.json({ success: true, data });
     } catch (error) { next(error); }
   });
 

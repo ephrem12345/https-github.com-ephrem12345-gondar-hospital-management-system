@@ -1,37 +1,48 @@
 <#
 .SYNOPSIS
-    Gondar Hospital Management System (GHMS) - Dev Server Starter Script
+    Gondar Hospital Management System (GHMS) - Unified Service Launcher
 .DESCRIPTION
-    Starts the GHMS backend (port 4000) and frontend (port 3002) in the correct order.
-    It verifies MySQL (port 3306), waits for backend health readiness before launching
-    the frontend, avoids duplicate processes, and never kills processes that do not
-    belong to this GHMS project.
+    Starts the GHMS MySQL database (port 3306), backend API (port 4000), and
+    frontend Next.js web application (port 3000) in proper dependency order.
+    Performs pre-flight checks, verifies HTTP readiness, manages port collisions,
+    and prevents duplicate processes without terminating unrelated applications.
 .EXAMPLE
-    .\start-ghms.ps1
     .\start-ghms.ps1 -OpenBrowser
     .\start-ghms.ps1 -VerifyOnly
     .\start-ghms.ps1 -Force
-    .\start-ghms.ps1 -SkipBackend
+    .\start-ghms.ps1 -Production
 #>
 
 [CmdletBinding()]
 param (
-    [int]$Port = 3002,
+    [int]$Port = 3000,
     [int]$BackendPort = 4000,
     [int]$MysqlPort = 3306,
     [switch]$Force,
-    [switch]$StartBackend,
-    [switch]$SkipBackend,
     [switch]$OpenBrowser,
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    [switch]$SkipBackend,
+    [switch]$Production,
+    [switch]$DetachFrontend
 )
 
 $ErrorActionPreference = "Continue"
 $script:HasFailure = $false
 
-# -------------------------------------------------------------------------
-# Helper Functions
-# -------------------------------------------------------------------------
+$projectRoot = $PSScriptRoot
+$backendPath = Join-Path $projectRoot "backend"
+$logsPath = Join-Path $projectRoot "logs"
+
+if (-not (Test-Path -LiteralPath $logsPath)) {
+    New-Item -ItemType Directory -Path $logsPath -Force | Out-Null
+}
+
+function Write-Step {
+    param ([string]$StepNumber, [string]$Title)
+    Write-Host ""
+    Write-Host "[$StepNumber] $Title" -ForegroundColor Yellow
+}
+
 function Write-Result {
     param ([string]$Message, [string]$Color = "Gray")
     Write-Host "      $Message" -ForegroundColor $Color
@@ -39,24 +50,30 @@ function Write-Result {
 
 function Test-TcpPort {
     param (
-        [string]$TargetHost = "127.0.0.1",
+        [string]$TargetHost = "localhost",
         [int]$TargetPort,
         [int]$TimeoutMs = 1500
     )
-    $client = $null
-    try {
-        $client = New-Object System.Net.Sockets.TcpClient
-        $async = $client.BeginConnect($TargetHost, $TargetPort, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
-            $client.EndConnect($async)
-            return $true
+    foreach ($target in @($TargetHost, "localhost", "127.0.0.1", "::1")) {
+        $client = $null
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $async = $client.BeginConnect($target, $TargetPort, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
+                $client.EndConnect($async)
+                return $true
+            }
+        } catch { } finally {
+            if ($client) { $client.Close() }
         }
-        return $false
-    } catch {
-        return $false
-    } finally {
-        if ($client) { $client.Close() }
     }
+
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $TargetPort -ErrorAction SilentlyContinue
+        if ($conns) { return $true }
+    } catch { }
+
+    return $false
 }
 
 function Test-HttpEndpoint {
@@ -127,7 +144,11 @@ function Test-GhmsProcess {
     param ([int]$ProcessId)
     $cmd = Get-ProcessCommandLine -ProcessId $ProcessId
     if (-not $cmd) { return $false }
-    return ($cmd -match 'GONDAR HOSPITAL MANAGEMENT SYSTEM' -or $cmd -match 'ghms-backend')
+    return ($cmd -match 'GONDAR HOSPITAL MANAGEMENT SYSTEM' -or 
+            $cmd -match 'ghms-backend' -or 
+            $cmd -match 'next dev' -or 
+            $cmd -match 'next start' -or
+            $cmd -match 'tsx watch src/server.ts')
 }
 
 function Stop-GhmsProcessTree {
@@ -137,14 +158,15 @@ function Stop-GhmsProcessTree {
             Write-Result "Stopping GHMS process tree (PID $processId)..." "Yellow"
             cmd /c "taskkill /PID $processId /F /T 2>nul" | Out-Null
         } else {
-            Write-Result "Refusing to stop PID $processId - it does not belong to this GHMS project." "Red"
+            $cmd = Get-ProcessCommandLine -ProcessId $processId
+            Write-Result "Refusing to stop PID $processId - foreign process: $cmd" "Red"
             $script:HasFailure = $true
         }
     }
 }
 
 function Wait-ForPortRelease {
-    param ([int]$TargetPort, [int]$Attempts = 6)
+    param ([int]$TargetPort, [int]$Attempts = 8)
     for ($i = 0; $i -lt $Attempts; $i++) {
         Start-Sleep -Seconds 1
         if ((Get-PortProcessId -TargetPort $TargetPort).Count -eq 0) { return $true }
@@ -157,89 +179,153 @@ function Wait-ForPortRelease {
 # -------------------------------------------------------------------------
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host " Gondar Hospital Management System (GHMS) - Dev Launcher" -ForegroundColor Cyan
+Write-Host " Gondar Hospital Management System (GHMS) - Launcher" -ForegroundColor Cyan
+Write-Host " Quality Healthcare * Better Service * Healthier Community" -ForegroundColor Cyan
+Write-Host " Mode: $(if ($Production) { 'PRODUCTION' } else { 'DEVELOPMENT' })" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
-
-$projectRoot = $PSScriptRoot
-$backendPath = Join-Path $projectRoot "backend"
 
 # -------------------------------------------------------------------------
-# Step 1: MySQL availability
+# Step 1: Pre-flight checks (Node, npm, directories, .env)
 # -------------------------------------------------------------------------
-Write-Host "[1/4] Checking MySQL on port $MysqlPort..." -ForegroundColor Yellow
-if (Test-TcpPort -TargetPort $MysqlPort) {
-    Write-Result "[OK] MySQL is accepting connections on port $MysqlPort." "Green"
-} else {
-    Write-Result "[X] MySQL is NOT reachable on port $MysqlPort." "Red"
-    Write-Result "Start MySQL from the XAMPP Control Panel, then run this script again." "Red"
+Write-Step "1/5" "Performing Pre-flight Environment Checks..."
+
+# Check Node.js
+try {
+    $nodeVer = & node -v 2>&1
+    Write-Result "[OK] Node.js is installed ($nodeVer)" "Green"
+} catch {
+    Write-Result "[X] Node.js is NOT found in PATH. Please install Node.js (v18+) and retry." "Red"
+    exit 1
+}
+
+# Check npm
+try {
+    $npmVer = & npm -v 2>&1
+    Write-Result "[OK] npm is installed (v$npmVer)" "Green"
+} catch {
+    Write-Result "[X] npm is NOT found in PATH." "Red"
+    exit 1
+}
+
+# Check dependencies
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot "node_modules"))) {
+    Write-Result "[!] Frontend dependencies missing. Installing..." "Yellow"
+    & npm install
+}
+if (-not (Test-Path -LiteralPath (Join-Path $backendPath "node_modules"))) {
+    Write-Result "[!] Backend dependencies missing. Installing..." "Yellow"
+    & npm --prefix "$backendPath" install
+}
+
+# Check environment files
+$frontEnv = Join-Path $projectRoot ".env"
+$frontEnvLocal = Join-Path $projectRoot ".env.local"
+$backEnv = Join-Path $backendPath ".env"
+
+if (-not (Test-Path -LiteralPath $frontEnv) -and -not (Test-Path -LiteralPath $frontEnvLocal)) {
+    Write-Result "[!] Frontend .env missing. Creating standard .env..." "Yellow"
+    "NEXT_PUBLIC_API_BASE_URL=http://localhost:$BackendPort/api/v1" | Set-Content -Path $frontEnvLocal -Encoding UTF8
+}
+if (-not (Test-Path -LiteralPath $backEnv)) {
+    Write-Result "[!] Backend .env missing! Please restore backend/.env before proceeding." "Red"
     $script:HasFailure = $true
 }
 
 # -------------------------------------------------------------------------
-# Step 2: Backend (port 4000)
+# Step 2: MySQL Database (port 3306)
 # -------------------------------------------------------------------------
-Write-Host ""
-Write-Host "[2/4] Checking GHMS Backend on port $BackendPort..." -ForegroundColor Yellow
-$healthUrl = "http://localhost:$BackendPort/api/v1/health"
-$backendHealthy = Test-HttpEndpoint -Url $healthUrl -TimeoutSec 2
+Write-Step "2/5" "Verifying MySQL Database on port $MysqlPort..."
+$mysqlRunning = Test-TcpPort -TargetPort $MysqlPort
 
-if ($backendHealthy) {
-    Write-Result "[OK] Backend is healthy at $healthUrl" "Green"
+if (-not $mysqlRunning) {
+    Write-Result "[!] MySQL is not responding on port $MysqlPort. Attempting to start XAMPP MySQL..." "Yellow"
+    $xamppMysqlBat = "C:\xampp\mysql_start.bat"
+    $xamppMysqld = "C:\xampp\mysql\bin\mysqld.exe"
+
+    if (Test-Path -LiteralPath $xamppMysqlBat) {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$xamppMysqlBat`"" -WindowStyle Hidden
+        Write-Result "Waiting up to 10 seconds for MySQL to start..." "Gray"
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-TcpPort -TargetPort $MysqlPort) { $mysqlRunning = $true; break }
+        }
+    } elseif (Test-Path -LiteralPath $xamppMysqld) {
+        Start-Process -FilePath $xamppMysqld -ArgumentList "--defaults-file=C:\xampp\mysql\bin\my.ini", "--standalone" -WindowStyle Hidden
+        Write-Result "Waiting up to 10 seconds for MySQL to start..." "Gray"
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-TcpPort -TargetPort $MysqlPort) { $mysqlRunning = $true; break }
+        }
+    }
+}
+
+if ($mysqlRunning) {
+    Write-Result "[OK] MySQL is active and accepting connections on port $MysqlPort." "Green"
+} else {
+    Write-Result "[X] MySQL is NOT running on port $MysqlPort." "Red"
+    Write-Result "Please start MySQL in the XAMPP Control Panel, then re-run this script." "Red"
+    $script:HasFailure = $true
+}
+
+# -------------------------------------------------------------------------
+# Step 3: Backend API (port 4000)
+# -------------------------------------------------------------------------
+Write-Step "3/5" "Verifying GHMS Backend API on port $BackendPort..."
+$healthUrl = "http://localhost:$BackendPort/api/v1/health"
+$readyUrl = "http://localhost:$BackendPort/api/v1/ready"
+$backendReady = Test-HttpEndpoint -Url $readyUrl -TimeoutSec 2
+
+if ($backendReady) {
+    Write-Result "[OK] Backend is already running and ready at $readyUrl" "Green"
 } elseif ($VerifyOnly) {
-    Write-Result "[!] Backend is not running (verify-only mode - not starting it)." "Yellow"
+    Write-Result "[!] Backend is not running (Verify-only mode)." "Yellow"
     $script:HasFailure = $true
 } elseif ($SkipBackend) {
-    Write-Result "[!] Backend check skipped (-SkipBackend). Login will fail until it is running." "Magenta"
+    Write-Result "[!] Backend startup skipped by request (-SkipBackend)." "Magenta"
 } else {
     $backendPids = @(Get-PortProcessId -TargetPort $BackendPort)
     $ghmsPids = @($backendPids | Where-Object { Test-GhmsProcess -ProcessId $_ })
     $foreignPids = @($backendPids | Where-Object { -not (Test-GhmsProcess -ProcessId $_) })
 
     if ($foreignPids.Count -gt 0) {
-        Write-Result "[X] Port $BackendPort is held by a process that is not part of this GHMS project (PID: $($foreignPids -join ', '))." "Red"
-        Write-Result "Stop that process or set a different PORT in backend/.env. This script will not kill it." "Red"
+        Write-Result "[X] Port $BackendPort is occupied by a foreign process (PID: $($foreignPids -join ', '))." "Red"
+        Write-Result "Cannot start GHMS backend on port $BackendPort. Please terminate the conflicting process." "Red"
         $script:HasFailure = $true
-    } elseif ($ghmsPids.Count -gt 0 -and -not $Force) {
-        Write-Result "[!] A GHMS backend process is already bound to port $BackendPort but health is not responding yet." "Yellow"
-        Write-Result "Waiting up to 20 seconds for readiness..." "Gray"
-        for ($i = 0; $i -lt 20; $i++) {
-            Start-Sleep -Seconds 1
-            if (Test-HttpEndpoint -Url $healthUrl -TimeoutSec 2) { $backendHealthy = $true; break }
-        }
-        if ($backendHealthy) {
-            Write-Result "[OK] Backend became healthy." "Green"
-        } else {
-            Write-Result "[X] Backend is still not responding. Re-run with -Force to restart the GHMS backend." "Red"
-            $script:HasFailure = $true
-        }
     } else {
         if ($ghmsPids.Count -gt 0 -and $Force) {
+            Write-Result "Force-restarting unresponsive GHMS backend processes..." "Yellow"
             Stop-GhmsProcessTree -ProcessIds $ghmsPids
             Wait-ForPortRelease -TargetPort $BackendPort | Out-Null
+        } elseif ($ghmsPids.Count -gt 0) {
+            Write-Result "A GHMS backend process is running on port $BackendPort. Waiting for readiness..." "Yellow"
+            for ($i = 0; $i -lt 15; $i++) {
+                Start-Sleep -Seconds 1
+                if (Test-HttpEndpoint -Url $readyUrl -TimeoutSec 2) { $backendReady = $true; break }
+            }
         }
 
-        if (-not (Test-Path -LiteralPath $backendPath)) {
-            Write-Result "[X] Backend directory not found at: $backendPath" "Red"
-            $script:HasFailure = $true
-        } elseif (-not (Test-Path -LiteralPath (Join-Path $backendPath "node_modules"))) {
-            Write-Result "[X] Backend dependencies are missing. Run: npm --prefix `"$backendPath`" install" "Red"
-            $script:HasFailure = $true
-        } else {
-            Write-Result "[*] Starting backend in a new PowerShell window..." "Cyan"
-            $command = "Set-Location -LiteralPath '$backendPath'; `$host.UI.RawUI.WindowTitle = 'GHMS Backend ($BackendPort)'; npm run dev"
-            Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $command -WorkingDirectory $backendPath | Out-Null
+        if (-not $backendReady) {
+            Write-Result "[*] Starting GHMS Backend on port $BackendPort..." "Cyan"
+            $backendScript = if ($Production) { "npm run start" } else { "npm run dev" }
+            $backendArgs = "/k title GHMS Backend API (Port $BackendPort) && $backendScript"
+            Start-Process -FilePath "cmd.exe" -ArgumentList $backendArgs -WorkingDirectory $backendPath | Out-Null
 
-            Write-Result "Waiting up to 60 seconds for backend health..." "Gray"
-            for ($i = 0; $i -lt 60; $i++) {
+            Write-Result "Waiting up to 45 seconds for backend readiness..." "Gray"
+            for ($i = 0; $i -lt 45; $i++) {
                 Start-Sleep -Seconds 1
-                if (Test-HttpEndpoint -Url $healthUrl -TimeoutSec 2) { $backendHealthy = $true; break }
+                Write-Host -NoNewline "."
+                if (Test-HttpEndpoint -Url $readyUrl -TimeoutSec 2) { 
+                    $backendReady = $true
+                    Write-Host ""
+                    break 
+                }
             }
 
-            if ($backendHealthy) {
-                Write-Result "[OK] Backend is healthy at $healthUrl" "Green"
+            if ($backendReady) {
+                Write-Result "[OK] Backend is healthy and ready at $readyUrl" "Green"
             } else {
-                Write-Result "[X] Backend did not become healthy. Check the backend window for the real error." "Red"
+                Write-Host ""
+                Write-Result "[X] Backend did not respond within 45 seconds. Inspect the 'GHMS Backend API' window for errors." "Red"
                 $script:HasFailure = $true
             }
         }
@@ -247,85 +333,150 @@ if ($backendHealthy) {
 }
 
 # -------------------------------------------------------------------------
-# Step 3: Frontend port (3002)
+# Step 4: Frontend Web Application (port 3000)
 # -------------------------------------------------------------------------
-Write-Host ""
-Write-Host "[3/4] Checking Frontend on port $Port..." -ForegroundColor Yellow
+Write-Step "4/5" "Verifying GHMS Frontend on port $Port..."
 $frontendUrl = "http://localhost:$Port"
 $frontendPids = @(Get-PortProcessId -TargetPort $Port)
-$frontendResponding = $false
+$frontendHealthy = $false
+
 if ($frontendPids.Count -gt 0) {
-    $frontendResponding = Test-HttpEndpoint -Url $frontendUrl -TimeoutSec 2
+    $frontendHealthy = Test-HttpEndpoint -Url $frontendUrl -TimeoutSec 2
 }
 
 $shouldStartFrontend = $true
+
 if ($frontendPids.Count -gt 0) {
-    if ($frontendResponding -and -not $Force) {
-        Write-Result "[OK] Frontend is already running at $frontendUrl (PID: $($frontendPids -join ', '))." "Green"
+    if ($frontendHealthy -and -not $Force) {
+        Write-Result "[OK] Frontend is already running and accessible at $frontendUrl (PID: $($frontendPids -join ', '))." "Green"
         $shouldStartFrontend = $false
     } else {
         $ghmsFrontPids = @($frontendPids | Where-Object { Test-GhmsProcess -ProcessId $_ })
         $foreignFrontPids = @($frontendPids | Where-Object { -not (Test-GhmsProcess -ProcessId $_) })
 
         if ($foreignFrontPids.Count -gt 0 -and -not $Force) {
-            Write-Result "[X] Port $Port is held by a non-GHMS process (PID: $($foreignFrontPids -join ', '))." "Red"
-            Write-Result "This script will not kill it. Stop it manually or use a different port." "Red"
+            Write-Result "[X] Port $Port is occupied by a foreign process (PID: $($foreignFrontPids -join ', '))." "Red"
+            Write-Result "Cannot start GHMS frontend on port $Port. Terminate PID $($foreignFrontPids -join ', ') or re-run with -Force." "Red"
             $script:HasFailure = $true
             $shouldStartFrontend = $false
         } elseif ($Force) {
+            Write-Result "Force-restarting frontend on port $Port..." "Yellow"
             Stop-GhmsProcessTree -ProcessIds $frontendPids
             if (Wait-ForPortRelease -TargetPort $Port) {
                 Write-Result "[OK] Port $Port released." "Green"
-            } else {
-                Write-Result "[!] Port $Port may still be releasing." "Yellow"
             }
         } else {
             Write-Result "[!] Port $Port is occupied by a GHMS process but not responding." "Yellow"
-            Write-Result "Re-run with -Force to restart it safely." "Gray"
+            Write-Result "Re-run with -Force to restart it." "Gray"
             $shouldStartFrontend = $false
         }
     }
 } else {
-    Write-Result "[OK] Port $Port is free." "Green"
+    Write-Result "[OK] Port $Port is available." "Green"
 }
 
 # -------------------------------------------------------------------------
-# Step 4: Start frontend / verification summary
+# Step 5: Startup / Summary
 # -------------------------------------------------------------------------
-Write-Host ""
+Write-Step "5/5" "Launching & Verifying Complete System..."
+
 if ($VerifyOnly) {
-    Write-Host "[4/4] Verification summary" -ForegroundColor Yellow
-    Write-Host "      MySQL ($MysqlPort):      $(if (Test-TcpPort -TargetPort $MysqlPort) { 'UP' } else { 'DOWN' })"
-    Write-Host "      Backend ($BackendPort):    $(if (Test-HttpEndpoint -Url $healthUrl -TimeoutSec 2) { 'UP' } else { 'DOWN' })"
-    Write-Host "      Frontend ($Port):   $(if (Test-HttpEndpoint -Url $frontendUrl -TimeoutSec 2) { 'UP' } else { 'DOWN' })"
     Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host " GHMS Service Status Summary" -ForegroundColor Yellow
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host " MySQL Database (Port $MysqlPort):   $(if (Test-TcpPort -TargetPort $MysqlPort) { '[UP]' } else { '[DOWN]' })"
+    Write-Host " Backend API ($BackendPort):          $(if (Test-HttpEndpoint -Url $readyUrl -TimeoutSec 2) { '[READY]' } else { '[DOWN]' })"
+    Write-Host " Frontend Web App ($Port):     $(if (Test-HttpEndpoint -Url $frontendUrl -TimeoutSec 2) { '[READY]' } else { '[DOWN]' })"
+    Write-Host "============================================================" -ForegroundColor Yellow
     if ($script:HasFailure) { exit 1 } else { exit 0 }
 }
 
 if (-not $shouldStartFrontend) {
+    Write-Host ""
     Write-Host "============================================================" -ForegroundColor Green
-    Write-Host " GHMS is ready: $frontendUrl" -ForegroundColor Green
-    Write-Host " Backend health: $healthUrl" -ForegroundColor Green
+    Write-Host " GHMS is fully operational!" -ForegroundColor Green
+    Write-Host " Web Portal:   $frontendUrl" -ForegroundColor Cyan
+    Write-Host " API Endpoint: http://localhost:$BackendPort/api/v1" -ForegroundColor Cyan
+    Write-Host " Health Check: $healthUrl" -ForegroundColor Cyan
+    Write-Host " Ready Check:  $readyUrl" -ForegroundColor Cyan
     Write-Host "============================================================" -ForegroundColor Green
     Write-Host ""
-    if ($OpenBrowser) { Start-Process $frontendUrl }
+    if ($OpenBrowser) {
+        Write-Host "Opening $frontendUrl in default browser..." -ForegroundColor Green
+        Start-Process $frontendUrl
+    }
     if ($script:HasFailure) { exit 1 }
     exit 0
 }
 
-Write-Host "[4/4] Starting GHMS Frontend on port $Port..." -ForegroundColor Cyan
-Write-Host "      URL: $frontendUrl" -ForegroundColor Green
-Write-Host "      Backend API: http://localhost:$BackendPort/api/v1" -ForegroundColor Gray
-Write-Host "      Press Ctrl+C at any time to stop the frontend." -ForegroundColor Gray
-Write-Host "------------------------------------------------------------" -ForegroundColor Gray
-Write-Host ""
+Write-Result "[*] Starting GHMS Frontend on port $Port..." "Cyan"
+$frontScript = if ($Production) { "npm run start" } else { "npm run dev" }
 
-if ($OpenBrowser) {
-    Start-Job -ScriptBlock {
-        param($url)
-        Start-Sleep -Seconds 4
-        Start-Process $url
-    } -ArgumentList $frontendUrl | Out-Null
+if ($DetachFrontend) {
+    $frontArgs = "/k title GHMS Frontend Web App (Port $Port) && $frontScript"
+    Start-Process -FilePath "cmd.exe" -ArgumentList $frontArgs -WorkingDirectory $projectRoot | Out-Null
+    
+    Write-Result "Waiting up to 45 seconds for frontend HTTP availability..." "Gray"
+    for ($i = 0; $i -lt 45; $i++) {
+        Start-Sleep -Seconds 1
+        Write-Host -NoNewline "."
+        if (Test-HttpEndpoint -Url $frontendUrl -TimeoutSec 2) {
+            $frontendHealthy = $true
+            Write-Host ""
+            break
+        }
+    }
+
+    if ($frontendHealthy) {
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host " GHMS is fully operational!" -ForegroundColor Green
+        Write-Host " Web Portal:   $frontendUrl" -ForegroundColor Cyan
+        Write-Host " API Endpoint: http://localhost:$BackendPort/api/v1" -ForegroundColor Cyan
+        Write-Host " Health Check: $healthUrl" -ForegroundColor Cyan
+        Write-Host " Ready Check:  $readyUrl" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Green
+        Write-Host ""
+        if ($OpenBrowser) {
+            Write-Host "Opening $frontendUrl in default browser..." -ForegroundColor Green
+            Start-Process $frontendUrl
+        }
+    } else {
+        Write-Host ""
+        Write-Result "[!] Frontend is still compiling initial chunks. Please check the 'GHMS Frontend Web App' window." "Yellow"
+        if ($OpenBrowser) {
+            Start-Process $frontendUrl
+        }
+    }
+} else {
+    if ($OpenBrowser) {
+        Start-Job -ScriptBlock {
+            param($url)
+            for ($i = 0; $i -lt 30; $i++) {
+                Start-Sleep -Seconds 1
+                try {
+                    $req = [System.Net.WebRequest]::Create($url)
+                    $req.Timeout = 1500
+                    $resp = $req.GetResponse()
+                    $resp.Close()
+                    Start-Process $url
+                    break
+                } catch { }
+            }
+        } -ArgumentList $frontendUrl | Out-Null
+    }
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Green
+    Write-Host " GHMS Frontend Starting on $frontendUrl" -ForegroundColor Green
+    Write-Host " Press Ctrl+C in this window at any time to stop the frontend." -ForegroundColor Gray
+    Write-Host "============================================================" -ForegroundColor Green
+    Write-Host ""
+
+    if ($Production) {
+        & npx next start -p $Port
+    } else {
+        & npx next dev -p $Port
+    }
 }
-
-& npx next dev -p $Port

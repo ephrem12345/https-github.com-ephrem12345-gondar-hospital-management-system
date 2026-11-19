@@ -1,0 +1,14 @@
+process.env.NODE_ENV ||= "test";
+process.env.PAYMENT_GATEWAY ||= "simulation";
+process.env.JWT_ACCESS_SECRET ||= "ghms-test-access-secret-with-at-least-32-chars";
+process.env.JWT_ISSUER ||= "ghms-api";
+process.env.DATABASE_URL ||= "mysql://ghms_user:ghms-local-dev@localhost:3306/ghms";
+process.env.CLOUDINARY_CLOUD_NAME ||= "ghms-test-cloud";
+process.env.CLOUDINARY_API_KEY ||= "test-api-key";
+process.env.CLOUDINARY_API_SECRET ||= "test-api-secret-long-enough";
+process.env.CRON_SECRET ||= "test-cron-secret-long-enough";
+process.env.CHAPA_SECRET_KEY ||= "CHASECK_TEST-test-secret-key";
+process.env.CHAPA_WEBHOOK_SECRET ||= "test-webhook-secret-long-enough";
+process.env.AUTH_RATE_LIMIT_MAX = "1000";
+process.env.RATE_LIMIT_MAX_REQUESTS = "5000";
+process.env.PUBLIC_RATE_LIMIT_MAX = "1000";

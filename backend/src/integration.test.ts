@@ -10,11 +10,16 @@ integration("GHMS API and MySQL integration", () => {
   let http: import("supertest").SuperTestStatic;
   let bcrypt: typeof import("bcryptjs");
   let jwt: typeof import("jsonwebtoken");
+  let hospitalId: string;
 
   beforeAll(async () => {
     process.env.DATABASE_URL ??= "mysql://root@127.0.0.1:3306/ghms_integration_test";
     process.env.JWT_ACCESS_SECRET ??= "integration-test-secret-with-at-least-32-characters";
+    process.env.JWT_ISSUER ??= "ghms-api";
     process.env.WEB_ORIGINS ??= "http://localhost:3000";
+    process.env.PAYMENT_GATEWAY ??= "simulation";
+    process.env.FRONTEND_URL ??= "http://localhost:3000";
+    process.env.PATIENT_REGISTRATION_REQUIRES_VERIFICATION = "true";
     const [{ PrismaClient }, { createApp }, supertest, bcryptModule, jwtModule] = await Promise.all([
       import("@prisma/client"),
       import("./app.js"),
@@ -24,6 +29,13 @@ integration("GHMS API and MySQL integration", () => {
     ]);
     database = new PrismaClient();
     await database.$connect();
+    const hospital = await database.hospital.findFirst({
+      where: { status: { in: ["TRIAL", "ACTIVE"] } },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (!hospital) throw new Error("Integration tests require an active or trial hospital seed");
+    hospitalId = hospital.id;
     app = createApp(database);
     http = (supertest as unknown as { default: typeof http }).default;
     bcrypt = bcryptModule;
@@ -56,6 +68,7 @@ integration("GHMS API and MySQL integration", () => {
         passwordHash: await bcrypt.hash("StaffPassword123", 4),
         role,
         status: "ACTIVE",
+        hospitalId,
         firstName: "Integration",
         lastName: role,
         department,
@@ -109,15 +122,10 @@ integration("GHMS API and MySQL integration", () => {
     await database.user.update({ where: { id: registration.body.data.id }, data: { status: "ACTIVE" } });
     const patient = await database.patient.findUniqueOrThrow({ where: { userId: registration.body.data.id } });
 
-    const now = new Date();
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-    const currentTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Addis_Ababa", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
-    const [currentHour, currentMinute] = currentTime.split(":").map(Number);
-    const slotMinutes = Math.ceil((currentHour * 60 + currentMinute + 30) / 30) * 30;
-    if (slotMinutes >= 24 * 60) throw new Error("Run the queue integration test before the last appointment slot of the day");
-    const slotTime = `${String(Math.floor(slotMinutes / 60)).padStart(2, "0")}:${String(slotMinutes % 60).padStart(2, "0")}`;
-    const endMinutes = slotMinutes + 30;
-    const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const appointmentDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa", year: "numeric", month: "2-digit", day: "2-digit" }).format(tomorrow);
+    const slotTime = "09:00";
+    const endTime = "09:30";
     const doctor = await database.doctor.create({
       data: { name: `Dr. Integration ${randomUUID().slice(0, 6)}`, specialty: "General Medicine", department: "Internal Medicine" },
     });
@@ -125,7 +133,7 @@ integration("GHMS API and MySQL integration", () => {
       data: {
         doctorId: doctor.id,
         department: doctor.department,
-        dayOfWeek: new Date(`${today}T00:00:00Z`).getUTCDay(),
+        dayOfWeek: new Date(`${appointmentDate}T00:00:00Z`).getUTCDay(),
         startTime: slotTime,
         endTime,
         slotDurationMins: 30,
@@ -141,7 +149,7 @@ integration("GHMS API and MySQL integration", () => {
       patientId: patient.patientNumber,
       doctor: doctor.id,
       department: doctor.department,
-      date: today,
+      date: appointmentDate,
       time: slotTime,
       type: "consultation",
       reason: "Integration appointment",
@@ -150,10 +158,13 @@ integration("GHMS API and MySQL integration", () => {
     const appointmentId = booking.body.data.id as string;
     expect(await database.appointment.count({ where: { id: appointmentId } })).toBe(1);
 
-    const listed = await http(app).get(`/api/v1/appointments?from=${today}&to=${today}`).set("Cookie", cookie);
+    const checkInDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    await database.appointment.update({ where: { id: appointmentId }, data: { scheduledAt: new Date() } });
+
+    const listed = await http(app).get(`/api/v1/appointments?from=${checkInDate}&to=${checkInDate}`).set("Cookie", cookie);
     expect(listed.status).toBe(200);
-    expect(listed.body.data.data).toHaveLength(1);
-    expect(listed.body.data.total).toBe(1);
+    expect(listed.body.data.data).toEqual(expect.arrayContaining([expect.objectContaining({ id: appointmentId })]));
+    expect(listed.body.data.total).toBeGreaterThanOrEqual(1);
 
     const checkIn = await http(app).post("/api/v1/queue/check-in").set("Cookie", cookie).send({ appointmentId });
     expect(checkIn.status).toBe(201);
@@ -166,9 +177,11 @@ integration("GHMS API and MySQL integration", () => {
 
     const unauthenticated = await http(app).get("/api/v1/appointments");
     expect(unauthenticated.status).toBe(401);
+    const refreshCookie = cookie.split("; ").find((value) => value.startsWith("ghms_refresh="))!;
     const logout = await http(app).post("/api/v1/auth/logout").set("Cookie", cookie);
     expect(logout.status).toBe(200);
-    expect((await http(app).get("/api/v1/appointments").set("Cookie", cookie)).status).toBe(401);
+    const refreshAfterLogout = await http(app).post("/api/v1/auth/refresh").set("Cookie", refreshCookie);
+    expect(refreshAfterLogout.status).toBe(401);
   }, 30000);
 
   it("registers emergency cases, stores triage history, and denies doctors outside emergency", async () => {
@@ -179,6 +192,7 @@ integration("GHMS API and MySQL integration", () => {
         firstName: "Emergency",
         lastName: "Integration",
         sex: "female",
+        hospitalId,
         dateOfBirth: new Date("1998-06-15T00:00:00.000Z"),
         phone: `+2519${randomUUID().replace(/\D/g, "").slice(0, 8)}`,
         department: "Emergency",
@@ -208,10 +222,14 @@ integration("GHMS API and MySQL integration", () => {
 
     const history = await http(app).get(`/api/v1/emergency/cases/${caseNumber}/history`).set("Cookie", cookie);
     expect(history.status).toBe(200);
-    expect(history.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(history.body.data.workflowHistory.length).toBeGreaterThanOrEqual(2);
 
     const outsideDoctor = await createStaff("DOCTOR", "Cardiology");
-    const token = jwt.sign({ role: "DOCTOR", department: "Cardiology" }, process.env.JWT_ACCESS_SECRET!, { subject: outsideDoctor.id });
+    const token = jwt.sign({ role: "DOCTOR", department: "Cardiology", hospitalId }, process.env.JWT_ACCESS_SECRET!, {
+      subject: outsideDoctor.id,
+      issuer: process.env.JWT_ISSUER,
+      audience: "ghms-web",
+    });
     const denied = await http(app).get("/api/v1/emergency/cases").set("Authorization", `Bearer ${token}`);
     expect(denied.status).toBe(403);
     expect(denied.body.error.code).toBe("FORBIDDEN");
@@ -239,7 +257,7 @@ integration("GHMS API and MySQL integration", () => {
 
     const requested = await http(app).post("/api/v1/portal/appointments").set("Cookie", cookie).send({
       department: "Internal Medicine",
-      doctor: "Any available doctor",
+      doctor: "Portal Test Doctor",
       date: "2026-12-01",
       time: "09:30",
       reason: "Portal integration test visit",

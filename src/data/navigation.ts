@@ -361,6 +361,18 @@ export const navigation: NavGroup[] = [
       { id: "service-pricing", label: "Service Pricing", labelAm: "የአገልግሎት ዋጋ", href: "/service-pricing", icon: Tags, description: "Configured service prices and insurance coverage." },
     ],
   },
+  {
+    id: "platform-billing",
+    label: "Platform & Billing",
+    labelAm: "መድረክ እና ክፍያ",
+    icon: CreditCard,
+    items: [
+      { id: "chapa-checkout", label: "Chapa Checkout", labelAm: "የቻፓ ክፍያ", href: "/chapa-checkout", icon: CreditCard, description: "Initialize and verify Chapa invoice payments." },
+      { id: "subscription", label: "Subscription", labelAm: "የደንበኝነት ምዝገባ", href: "/subscription", icon: ShieldCheck, description: "Manage the hospital SaaS plan and payment history." },
+      { id: "media-library", label: "Media Library", labelAm: "የሚዲያ ቤተ መጻሕፍት", href: "/media-library", icon: Files, description: "Signed Cloudinary uploads and asset management." },
+      { id: "platform-admin", label: "Platform Admin", labelAm: "የመድረክ አስተዳደር", href: "/platform-admin", icon: Building2, description: "Super administrator tenant and revenue overview." },
+    ],
+  },
 ];
 
 /** Flat lookup of every nav item by href. */

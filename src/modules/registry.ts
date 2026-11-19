@@ -9,6 +9,7 @@ import { hrScreens } from "@/modules/hr";
 import { resourceScreens } from "@/modules/resources";
 import { managementScreens } from "@/modules/management";
 import { adminScreens, ROLES, permissionRows } from "@/modules/admin";
+import { billingScreens } from "@/modules/billing";
 
 /**
  * Route → screen registry. One entry per sidebar navigation item; the
@@ -25,6 +26,7 @@ const groups = [
   resourceScreens,
   managementScreens,
   adminScreens,
+  billingScreens,
 ];
 
 export const screenRegistry: Record<string, ModuleScreen> = Object.assign(

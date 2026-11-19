@@ -13,6 +13,22 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, _nex
     return;
   }
 
+  if (error instanceof SyntaxError && "body" in error) {
+    response.status(400).json({
+      success: false,
+      error: { code: "INVALID_JSON", message: "Request body must be valid JSON", requestId: request.requestId },
+    });
+    return;
+  }
+
+  if (typeof error === "object" && error !== null && "type" in error && error.type === "entity.too.large") {
+    response.status(413).json({
+      success: false,
+      error: { code: "PAYLOAD_TOO_LARGE", message: "Request body is too large", requestId: request.requestId },
+    });
+    return;
+  }
+
   if (error instanceof z.ZodError) {
     const firstIssue = error.issues[0];
     const message = firstIssue?.message || "Invalid input data";

@@ -24,6 +24,8 @@ import { saasRoutes } from "./modules/saas/routes.js";
 import { SaasService } from "./modules/saas/service.js";
 import { paymentRoutes } from "./modules/payments/routes.js";
 import { ChapaPaymentService } from "./modules/payments/chapa.service.js";
+import { createPaymentGateway } from "./modules/payments/chapa.gateway.js";
+import { runSubscriptionMaintenance } from "./modules/saas/jobs.js";
 import { mediaRoutes } from "./modules/media/routes.js";
 import { MediaService } from "./modules/media/service.js";
 import { HttpError } from "./utils/http-error.js";
@@ -101,6 +103,7 @@ export function createApp(database: PrismaClient) {
   const emergencyService = new EmergencyService(database);
 
   app.disable("x-powered-by");
+  app.set("trust proxy", env.TRUST_PROXY);
   app.use(helmet());
   app.use(cors({
     credentials: true,
@@ -111,8 +114,16 @@ export function createApp(database: PrismaClient) {
       return callback(null, false);
     },
   }));
-  app.use(express.json({ limit: "25mb" }));
-  app.use(express.urlencoded({ limit: "25mb", extended: true }));
+  const publicLimiter = rateLimit({
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    limit: env.PUBLIC_RATE_LIMIT_MAX,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+  });
+  app.use("/api/v1/payments/chapa/webhook", publicLimiter, express.raw({ type: () => true, limit: "1mb" }));
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
   app.use((request, response, next) => {
     request.requestId = crypto.randomUUID();
     response.setHeader("x-request-id", request.requestId);
@@ -120,14 +131,22 @@ export function createApp(database: PrismaClient) {
   });
   app.use(pinoHttp({ logger, genReqId: (request) => (request as typeof request & { requestId: string }).requestId }));
 
+  const limiterMessage = { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } };
+  app.use("/api/v1", rateLimit({
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    limit: env.RATE_LIMIT_MAX_REQUESTS,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: limiterMessage,
+    skip: (request) => request.path === "/payments/chapa/webhook",
+  }));
   const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: env.NODE_ENV === "development" || env.NODE_ENV === "test" ? 200 : 10,
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    limit: env.AUTH_RATE_LIMIT_MAX,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: { success: false, error: { code: "RATE_LIMITED", message: "Too many authentication attempts" } },
   });
-  app.use("/api/v1/auth", authRoutes(database, authLimiter));
 
   app.get("/api/v1/health", (_request, response) => {
     const timestamp = new Date().toISOString();
@@ -174,14 +193,29 @@ export function createApp(database: PrismaClient) {
 
   const notificationService = new NotificationService(database);
   const portalService = new PortalService(database, service, notificationService);
-  const saasService = new SaasService(database);
-  const paymentService = new ChapaPaymentService(database);
+  const gateway = createPaymentGateway();
+  const saasService = new SaasService(database, gateway);
+  const paymentService = new ChapaPaymentService(database, gateway, (input) => saasService.confirmSubscriptionPayment(input));
   const mediaService = new MediaService(database);
 
+  app.use("/api/v1/auth", authRoutes(database, authLimiter, saasService));
   app.use("/api/v1", portalRoutes(portalService));
-  app.use("/api/v1", saasRoutes(saasService));
+  app.use("/api/v1", saasRoutes(saasService, publicLimiter));
   app.use("/api/v1", paymentRoutes(paymentService));
   app.use("/api/v1", mediaRoutes(mediaService));
+
+  app.post("/api/v1/jobs/subscriptions", async (request, response, next) => {
+    try {
+      const provided = request.header("x-cron-secret") ?? "";
+      const expected = env.CRON_SECRET ?? "";
+      const a = Buffer.from(provided);
+      const b = Buffer.from(expected);
+      if (!expected || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        throw new HttpError(401, "Invalid cron secret", "UNAUTHENTICATED");
+      }
+      response.json({ success: true, data: await runSubscriptionMaintenance(database) });
+    } catch (error) { next(error); }
+  });
 
   app.use("/api/v1", authenticate, appointmentRoutes(service));
   app.use("/api/v1", authenticate, emergencyRoutes(emergencyService));

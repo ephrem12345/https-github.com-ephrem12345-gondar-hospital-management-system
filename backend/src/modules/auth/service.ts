@@ -151,6 +151,7 @@ export class AuthService {
         passwordHash: true,
         role: true,
         status: true,
+        hospitalId: true,
         firstName: true,
         middleName: true,
         lastName: true,

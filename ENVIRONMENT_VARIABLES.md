@@ -23,10 +23,11 @@ Frontend variables prefixed with `NEXT_PUBLIC_` are bundled into client-side Jav
 
 | Variable Name | Required | Default | Sensitivity | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `NEXT_PUBLIC_API_BASE_URL` | **Yes** | `http://localhost:4000/api/v1` | Public | The full HTTPS base URL for the backend Express API (e.g., `https://api.gondar-hospital.et/api/v1`). |
+| `NEXT_PUBLIC_API_BASE_URL` | **Yes** | `/api/v1` | Public | Browser API base URL. On Vercel use `/api/v1` so the browser calls the same-origin Next.js rewrite. |
 | `NEXT_PUBLIC_API_MODE` | **Yes** | `live` | Configuration | Must be set to `live` in production. Setting to `demo` enables in-memory mock fallback mode. |
 | `NODE_ENV` | **Yes** | `production` | System | Specifies the execution environment. Enables minification, caching, and production optimizations. |
 | `PORT` | No | `3000` | Network | The internal HTTP listening port for Next.js when running standalone or behind Nginx. |
+| `BACKEND_ORIGIN` | **Yes on Vercel** | `http://localhost:4000` | **Server-only** | Origin consumed by `next.config.mjs` rewrites. Configure it on Vercel as a non-`NEXT_PUBLIC_` variable. |
 
 ---
 
@@ -47,6 +48,22 @@ Backend variables are strictly server-side and are never exposed to clients or b
 | `RATE_LIMIT_WINDOW_MS` | No | `900000` | Security | Rate limiting time window in milliseconds (default: 15 minutes = 900,000 ms). |
 | `RATE_LIMIT_MAX_REQUESTS`| No | `100` | Security | Maximum allowed HTTP requests per client IP per window. |
 | `AUTH_RATE_LIMIT_MAX` | No | `10` | Security | Stricter limit applied specifically to login and registration endpoints to prevent brute-force attacks. |
+| `JWT_ISSUER` | No | `ghms-api` | Configuration | Issuer claim enforced when verifying access tokens. |
+| `TRUST_PROXY` | No | `false` | Security | Set `true` behind a trusted reverse proxy/Vercel so rate limiting sees the client IP. |
+| `PUBLIC_RATE_LIMIT_MAX` | No | `20` | Security | Stricter limit for public hospital registration and payment webhooks. |
+| `PAYMENT_GATEWAY` | **Yes** | `chapa` | Configuration | Production only accepts `chapa`; `simulation` is rejected outside development/test. |
+| `CHAPA_SECRET_KEY` | **Yes in production** | *None* | **SECRET** | Chapa secret key used for initialize and verify API calls. |
+| `CHAPA_PUBLIC_KEY` | No | *None* | Public | Chapa public key, if required by your integration. |
+| `CHAPA_WEBHOOK_SECRET` | **Yes in production** | *None* | **SECRET** | HMAC-SHA256 secret used to verify raw webhook bodies. |
+| `CHAPA_BASE_URL` | No | `https://api.chapa.co/v1` | Configuration | Chapa API base URL. |
+| `BACKEND_PUBLIC_URL` | **Yes in production** | *None* | Configuration | Public backend origin used as the Chapa webhook callback URL. |
+| `CLOUDINARY_CLOUD_NAME` | **Yes in production** | *None* | Configuration | Cloudinary cloud name for signed uploads and asset verification. |
+| `CLOUDINARY_API_KEY` | **Yes in production** | *None* | **SECRET** | Cloudinary API key. |
+| `CLOUDINARY_API_SECRET` | **Yes in production** | *None* | **SECRET** | Signs uploads, delivery URLs, deletes, and verifies uploaded assets. |
+| `CRON_SECRET` | **Yes in production** | *None* | **SECRET** | Protects `POST /api/v1/jobs/subscriptions`. |
+| `SUBSCRIPTION_JOB_ENABLED` | No | `false` | Configuration | Enables in-process subscription expiration worker. |
+| `SUBSCRIPTION_JOB_INTERVAL_MINUTES` | No | `60` | Configuration | Interval for the expiration worker. |
+| `TRIAL_DAYS` / `TRIAL_GRACE_DAYS` / `SUBSCRIPTION_GRACE_DAYS` | No | `14` / `3` / `7` | Configuration | Trial and past-due grace periods. |
 
 ---
 

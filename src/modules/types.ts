@@ -22,7 +22,11 @@ export type CustomScreen =
   | "waiting-room"
   | "departments-workspace"
   | "permissions"
-  | "clinical-messages";
+  | "clinical-messages"
+  | "chapa-checkout"
+  | "subscription"
+  | "media-library"
+  | "platform-admin";
 
 // ------------------------------------------------------------------ List
 

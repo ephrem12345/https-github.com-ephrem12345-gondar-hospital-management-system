@@ -19,13 +19,15 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   PUBLIC_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
 
-  PAYMENT_GATEWAY: z.enum(["chapa", "simulation"]).default("chapa"),
+  PAYMENT_GATEWAY: z.enum(["chapa", "simulation"]).default(
+    process.env.NODE_ENV === "production" ? "chapa" : "simulation"
+  ),
   CHAPA_SECRET_KEY: z.string().min(1).optional(),
   CHAPA_PUBLIC_KEY: z.string().min(1).optional(),
   CHAPA_WEBHOOK_SECRET: z.string().min(16).optional(),
   CHAPA_BASE_URL: z.string().url().default("https://api.chapa.co/v1"),
   CHAPA_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
-  FRONTEND_URL: z.string().url().default("http://localhost:3002"),
+  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   BACKEND_PUBLIC_URL: z.string().url().optional(),
 
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
