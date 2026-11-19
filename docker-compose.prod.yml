@@ -1,0 +1,125 @@
+services:
+  # ==============================================================================
+  # Database Service: Hardened MySQL 8.0
+  # ==============================================================================
+  db:
+    image: mysql:8.0.36
+    container_name: ghms-mysql-prod
+    restart: unless-stopped
+    command:
+      - --default-authentication-plugin=caching_sha2_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=150
+      - --innodb-buffer-pool-size=1G
+      - --innodb-log-file-size=256M
+      - --log-bin=/var/log/mysql/mysql-bin.log
+      - --expire-logs-days=7
+      - --sync-binlog=1
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      MYSQL_DATABASE: ghms
+      MYSQL_USER: ghms_app
+      MYSQL_PASSWORD_FILE: /run/secrets/db_app_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - mysql_logs:/var/log/mysql
+      - ./backend/prisma/seed.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - ghms-internal
+    secrets:
+      - db_root_password
+      - db_app_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==============================================================================
+  # Backend API Service: Node.js / Express 5
+  # ==============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ghms-api-prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - backend/.env.production
+    environment:
+      PORT: 4000
+    networks:
+      - ghms-internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ==============================================================================
+  # Frontend Web Service: Next.js 15
+  # ==============================================================================
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: ghms-web-prod
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      PORT: 3000
+    networks:
+      - ghms-internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  # ==============================================================================
+  # Reverse Proxy & Edge Gateway: Nginx (TLS / SSL / Load Balancing)
+  # ==============================================================================
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: ghms-proxy-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/dhparam.pem:/etc/nginx/dhparam.pem:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - ghms-internal
+      - ghms-public
+
+networks:
+  ghms-internal:
+    internal: true
+  ghms-public:
+
+volumes:
+  mysql_data:
+  mysql_logs:
+  nginx_logs:
+
+secrets:
+  db_root_password:
+    file: ./secrets/db_root_password.txt
+  db_app_password:
+    file: ./secrets/db_app_password.txt

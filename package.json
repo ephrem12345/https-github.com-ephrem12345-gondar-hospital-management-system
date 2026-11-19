@@ -1,0 +1,41 @@
+{
+  "name": "ghms",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:3002": "next dev -p 3002",
+    "dev:safe": "powershell -ExecutionPolicy Bypass -File ./start-ghms.ps1",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^7.0.5",
+    "lucide-react": "^1.72.0",
+    "next": "^15.5.29",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.92.0",
+    "recharts": "^3.10.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.10",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.6.2",
+    "jsdom": "^31.0.0",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}
