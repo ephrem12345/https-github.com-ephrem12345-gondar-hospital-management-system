@@ -2,19 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { requirePermission } from "../../middleware/authenticate.js";
 import { HttpError } from "../../utils/http-error.js";
+import { parseId, param } from "../../utils/params.js";
 import { departmentListQuerySchema, emergencyListQuerySchema, emergencyResourceSchema } from "./schemas.js";
 import type { EmergencyService } from "./service.js";
-
-function parseId(value: string | string[]) {
-  const parsed = z.string().uuid().safeParse(value);
-  if (!parsed.success) throw new HttpError(400, "Invalid resource identifier", "VALIDATION_ERROR");
-  return parsed.data;
-}
-
-function param(value: string | string[]) {
-  if (Array.isArray(value)) throw new HttpError(400, "Invalid route parameter", "VALIDATION_ERROR");
-  return value;
-}
 
 export function emergencyRoutes(service: EmergencyService) {
   const router = Router();

@@ -54,7 +54,6 @@ import {
   UsersRound,
   Wallet,
   Wrench,
-  type LucideIcon,
 } from "lucide-react";
 import type { NavGroup, NavItem } from "@/types/navigation";
 

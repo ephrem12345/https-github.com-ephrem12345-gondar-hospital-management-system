@@ -1,38 +1,6 @@
-import { CalendarCheck, Clock, HeartPulse, LayoutList, Stethoscope, UserRoundCog, Users } from "lucide-react";
-import { patientRegistrationSchema } from "@/validation/schemas";
+import { Clock, HeartPulse, Stethoscope, UserRoundCog } from "lucide-react";
 import type { ModuleScreen, AnyRow } from "@/modules/types";
 import type { Column } from "@/components/ui/DataTable";
-
-interface AppointmentRow {
-  id: string;
-  time: string;
-  patient: string;
-  patientId: string;
-  doctor: string;
-  department: string;
-  type: string;
-  status: string;
-}
-
-const appointments: AppointmentRow[] = [
-  { id: "apt-001", time: "08:30", patient: "Almaz Tadesse", patientId: "GHMS-000001", doctor: "Dr. Selam Girma", department: "Internal Medicine", type: "follow-up", status: "completed" },
-  { id: "apt-002", time: "09:00", patient: "Getachew Molla", patientId: "GHMS-000002", doctor: "Dr. Mulu Alemu", department: "Surgery", type: "consultation", status: "completed" },
-  { id: "apt-003", time: "09:45", patient: "Hanna Girma", patientId: "GHMS-000003", doctor: "Dr. Kidist Haile", department: "Gynecology & Obstetrics", type: "consultation", status: "in-progress" },
-  { id: "apt-004", time: "10:15", patient: "Yohannes Kebede", patientId: "GHMS-000004", doctor: "Dr. Selam Girma", department: "Internal Medicine", type: "follow-up", status: "scheduled" },
-  { id: "apt-005", time: "10:45", patient: "Sara Alemu", patientId: "GHMS-000005", doctor: "Dr. Bereket Assefa", department: "Pediatrics", type: "consultation", status: "scheduled" },
-  { id: "apt-006", time: "11:30", patient: "Dawit Haile", patientId: "GHMS-000006", doctor: "Dr. Mulu Alemu", department: "Orthopedics", type: "procedure", status: "scheduled" },
-  { id: "apt-007", time: "13:00", patient: "Meron Assefa", patientId: "GHMS-000007", doctor: "Dr. Kidist Haile", department: "Dermatology", type: "follow-up", status: "cancelled" },
-  { id: "apt-008", time: "14:15", patient: "Tesfaye Bekele", patientId: "GHMS-000008", doctor: "Dr. Selam Girma", department: "Internal Medicine", type: "consultation", status: "pending" },
-];
-
-const appointmentColumns: Column<AnyRow>[] = [
-  { key: "time", header: "Time", sortValue: (row) => String(row.time), render: (row) => <span className="font-mono text-xs font-semibold text-primary-700 dark:text-primary-300">{String(row.time)}</span> },
-  { key: "patient", header: "Patient", sortValue: (row) => String(row.patient) },
-  { key: "doctor", header: "Doctor", sortValue: (row) => String(row.doctor), hideOnTablet: true },
-  { key: "department", header: "Department", sortValue: (row) => String(row.department), hideOnMobile: true },
-  { key: "type", header: "Type", sortValue: (row) => String(row.type), hideOnTablet: true, render: (row) => <span className="capitalize">{String(row.type)}</span> },
-  { key: "status", header: "Status", sortValue: (row) => String(row.status), render: (row) => <span className="capitalize">{String(row.status)}</span> },
-];
 
 interface OpdRow {
   id: string;

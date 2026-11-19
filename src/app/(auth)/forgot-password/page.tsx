@@ -30,9 +30,10 @@ export default function ForgotPasswordPage() {
     setError(null);
     try {
       const result = await authService.requestPasswordReset(values.identifier);
-      setSentTo(values.identifier);
-      setSent(true);
-      console.info("[auth] reset request response:", result.message);
+      if (result) {
+        setSentTo(values.identifier);
+        setSent(true);
+      }
     } catch {
       setError("The request could not be sent. Please try again.");
     }

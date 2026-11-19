@@ -9,11 +9,7 @@ import {
 } from "./schemas.js";
 import { requirePermission } from "../../middleware/authenticate.js";
 import { HttpError } from "../../utils/http-error.js";
-
-function getParam(param: string | string[] | undefined): string {
-  if (Array.isArray(param)) return param[0] || "";
-  return param || "";
-}
+import { getParam } from "../../utils/params.js";
 
 export function laboratoryRoutes(database: PrismaClient) {
   const router = Router();

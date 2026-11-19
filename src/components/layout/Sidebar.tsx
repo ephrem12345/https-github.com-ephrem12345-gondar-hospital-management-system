@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { navigation } from "@/data/navigation";

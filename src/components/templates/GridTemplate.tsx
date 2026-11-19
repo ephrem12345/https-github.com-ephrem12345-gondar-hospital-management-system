@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
-import { StatCard, type StatCardProps } from "@/components/ui/StatCard";
+import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { FilterDropdown } from "@/components/ui/FilterDropdown";
 import type { GridScreen } from "@/modules/types";

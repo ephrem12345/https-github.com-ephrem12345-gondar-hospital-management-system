@@ -1,5 +1,4 @@
 import {
-  UserCog,
   Stethoscope,
   HeartPulse,
   FlaskConical,

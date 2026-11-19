@@ -32,7 +32,7 @@ export function Topbar({
   onLogout,
   breadcrumbs,
 }: TopbarProps) {
-  const { language, t } = useTranslation();
+  const { language } = useTranslation();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);

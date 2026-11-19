@@ -8,18 +8,9 @@ import {
   portalProfileUpdateSchema,
   portalSupportRequestSchema,
 } from "./schemas.js";
+import { addLocalDays, dayOfWeek } from "../../utils/date.js";
 
 type Actor = NonNullable<Express.Request["actor"]>;
-
-function dayOfWeek(date: string): number {
-  return new Date(`${date}T00:00:00Z`).getUTCDay();
-}
-
-function addLocalDays(date: string, days: number): string {
-  const parsed = new Date(`${date}T00:00:00Z`);
-  parsed.setUTCDate(parsed.getUTCDate() + days);
-  return parsed.toISOString().slice(0, 10);
-}
 
 const encounterStatusLabels: Record<string, string> = { ACTIVE: "Ongoing", COMPLETED: "Completed" };
 const invoiceStatusLabels: Record<string, string> = { UNPAID: "Unpaid", PARTIALLY_PAID: "Partially paid", PAID: "Paid", VOID: "Void" };

@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Archive, ClipboardList, Package, Pill, Plus, Printer, ShoppingCart, Truck } from "lucide-react";
+import { Archive, ClipboardList, Package, Pill, Plus, Printer, ShoppingCart } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { StatCard, type StatTone } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { DataTable, Field, inputClass } from "./WorkspaceShared";
 import type {
   DispensingRecord,
   MedicineBatch,
@@ -62,16 +63,6 @@ const initialSuppliers: PharmacySupplier[] = [
 const initialProcurement: ProcurementRecord[] = [
   { id: "PR-7001", supplierId: "SUP-010", supplierName: "Demo Medical Supply", medicineName: "Paracetamol 500 mg", quantity: 500, requestedAt: "Today", status: "Purchase order" },
 ];
-
-const inputClass = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">{label}{children}</label>;
-}
-
-function DataTable({ label, headers, children }: { label: string; headers: string[]; children: ReactNode }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm" aria-label={label}><thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900/50 dark:text-slate-400"><tr>{headers.map((header) => <th key={header} className="px-4 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{children}</tbody></table></div>;
-}
 
 function Row({ cells }: { cells: ReactNode[] }) {
   return <tr className="align-top text-slate-700 dark:text-slate-200">{cells.map((cell, index) => <td key={index} className="px-4 py-3">{cell}</td>)}</tr>;

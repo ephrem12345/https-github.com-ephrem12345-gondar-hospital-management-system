@@ -1,4 +1,4 @@
-import { Building2, Cog, Files, ShieldCheck, Tags, UserCog, Users } from "lucide-react";
+import { Building2, Files, ShieldCheck, Tags, UserCog, Users } from "lucide-react";
 import type { ModuleScreen, AnyRow, FormFieldConfig } from "@/modules/types";
 import type { Column } from "@/components/ui/DataTable";
 import type { PermissionRow } from "@/components/templates/PermissionsMatrix";

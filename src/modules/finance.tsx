@@ -3,7 +3,6 @@ import {
   Banknote,
   BookOpen,
   CreditCard,
-  FilePlus2,
   FileText,
   Files,
   HandCoins,

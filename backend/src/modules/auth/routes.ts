@@ -13,14 +13,15 @@ import {
   resetPasswordSchema,
   updateUserStatusSchema,
 } from "./schemas.js";
-import { authenticate, requireRole } from "../../middleware/authenticate.js";
+import { authenticate, requireRole, requireTenant } from "../../middleware/authenticate.js";
 import { HttpError } from "../../utils/http-error.js";
+import type { SaasService } from "../saas/service.js";
 
 const noopMiddleware: RequestHandler = (_req, _res, next) => next();
 
-export function authRoutes(database: PrismaClient, rateLimiter: RequestHandler = noopMiddleware) {
+export function authRoutes(database: PrismaClient, rateLimiter: RequestHandler = noopMiddleware, saas?: SaasService) {
   const router = Router();
-  const service = new AuthService(database);
+  const service = new AuthService(database, saas);
 
   router.post("/login", rateLimiter, async (request, response, next) => {
     try {
@@ -88,15 +89,15 @@ export function authRoutes(database: PrismaClient, rateLimiter: RequestHandler =
   });
 
   // Administrator Account Management Routes
-  router.get("/users", authenticate, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
+  router.get("/users", authenticate, requireTenant, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
     try {
       const query = listUsersQuerySchema.parse(request.query);
-      const result = await service.listUsers(query);
+      const result = await service.listUsers({ ...query, hospitalId: request.actor!.hospitalId });
       response.json({ success: true, data: result });
     } catch (error) { next(error); }
   });
 
-  router.patch("/users/:id/status", authenticate, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
+  router.patch("/users/:id/status", authenticate, requireTenant, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
     try {
       const adminActorId = request.actor?.userId;
       if (!adminActorId) throw new HttpError(401, "Authentication is required", "UNAUTHENTICATED");
@@ -104,17 +105,17 @@ export function authRoutes(database: PrismaClient, rateLimiter: RequestHandler =
       const targetUserId = Array.isArray(rawTargetId) ? rawTargetId[0] : rawTargetId;
       if (!targetUserId) throw new HttpError(400, "User ID is required", "INVALID_USER_ID");
       const input = updateUserStatusSchema.parse(request.body);
-      const result = await service.updateUserStatus(targetUserId, input.status, adminActorId, request.requestId, input.reason);
+      const result = await service.updateUserStatus(targetUserId, input.status, adminActorId, request.requestId, input.reason, request.actor!.hospitalId);
       response.json({ success: true, data: result });
     } catch (error) { next(error); }
   });
 
-  router.post("/staff", authenticate, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
+  router.post("/staff", authenticate, requireTenant, requireRole(UserRole.ADMINISTRATOR), async (request, response, next) => {
     try {
       const adminActorId = request.actor?.userId;
       if (!adminActorId) throw new HttpError(401, "Authentication is required", "UNAUTHENTICATED");
       const input = createStaffSchema.parse(request.body);
-      const result = await service.createStaff(input, adminActorId, request.requestId);
+      const result = await service.createStaff(input, adminActorId, request.requestId, request.actor!.hospitalId);
       response.status(201).json({ success: true, data: result });
     } catch (error) { next(error); }
   });

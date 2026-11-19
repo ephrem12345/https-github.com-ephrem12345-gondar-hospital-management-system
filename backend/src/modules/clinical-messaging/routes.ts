@@ -18,11 +18,7 @@ import {
 } from "./schemas.js";
 import { requirePermission, requireRole } from "../../middleware/authenticate.js";
 import { HttpError } from "../../utils/http-error.js";
-
-function getParam(param: string | string[] | undefined): string {
-  if (Array.isArray(param)) return param[0] || "";
-  return param || "";
-}
+import { getParam } from "../../utils/params.js";
 
 export function clinicalMessagingRoutes(database: PrismaClient) {
   const router = Router();

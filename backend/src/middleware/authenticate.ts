@@ -20,27 +20,34 @@ export async function authenticate(request: Request, _response: Response, next: 
   if (!token) return next(new HttpError(401, "Authentication is required", "UNAUTHENTICATED"));
 
   try {
-    const claims = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtPayload;
+    const claims = jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      algorithms: ["HS256"],
+      issuer: env.JWT_ISSUER,
+      audience: "ghms-web",
+    }) as JwtPayload;
     if (typeof claims.sub !== "string" || typeof claims.role !== "string" || !roleValues.has(claims.role)) {
       throw new Error("Invalid access token claims");
     }
 
+    let role = claims.role as UserRole;
     if (authDatabase) {
       const user = await authDatabase.user.findUnique({
         where: { id: claims.sub },
-        select: { status: true, hospitalId: true },
+        select: { status: true, hospitalId: true, role: true },
       });
       if (!user || user.status !== "ACTIVE") {
         return next(new HttpError(403, "This account is not active. Contact the hospital registration desk.", "ACCOUNT_NOT_ACTIVE"));
       }
-      if (user.hospitalId && !claims.hospitalId) {
-        claims.hospitalId = user.hospitalId;
+      role = user.role;
+      if (user.hospitalId !== claims.hospitalId) {
+        throw new HttpError(401, "Token tenant does not match the active account", "TENANT_MISMATCH");
       }
+      claims.hospitalId = user.hospitalId ?? undefined;
     }
 
     request.actor = {
       userId: claims.sub,
-      role: claims.role as UserRole,
+      role,
       ...(typeof claims.patientId === "string" ? { patientId: claims.patientId } : {}),
       ...(typeof claims.department === "string" ? { department: claims.department } : {}),
       ...(typeof claims.hospitalId === "string" ? { hospitalId: claims.hospitalId } : {}),

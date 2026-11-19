@@ -26,6 +26,7 @@ export const registerSchema = z.object({
   phone: z.string().trim().min(9, "Enter a valid phone number").max(32).regex(/^[+\d\s()-]+$/, "Phone number contains invalid characters"),
   email: z.string().trim().email("Enter a valid email").max(254),
   address: z.string().trim().min(4, "Address is required").max(200),
+  hospitalCode: z.string().trim().min(2).max(60).regex(/^[a-zA-Z0-9-_]+$/).optional(),
   password,
   termsAccepted: z.literal(true, { message: "You must accept the terms and privacy policy" }),
 });

@@ -1,311 +1,387 @@
 import crypto from "node:crypto";
+import { Prisma, PaymentMethod, PaymentStatus, InvoiceStatus, UserRole } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
-import { PaymentMethod, PaymentStatus, InvoiceStatus, UserRole } from "@prisma/client";
+import { z } from "zod";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { HttpError } from "../../utils/http-error.js";
+import {
+  createPaymentGateway,
+  generateReceiptNumber,
+  generateTxRef,
+  isSubscriptionTxRef,
+  type GatewayVerification,
+  type PaymentGateway,
+} from "./chapa.gateway.js";
+
+export interface PaymentActor {
+  userId: string;
+  role: UserRole;
+  patientId?: string;
+  hospitalId?: string;
+}
 
 export interface ChapaInitInput {
   invoiceId: string;
-  actor: {
-    userId: string;
-    role: UserRole;
-    patientId?: string;
-    hospitalId?: string;
-  };
+  actor: PaymentActor;
   returnUrl?: string;
 }
 
+export interface SubscriptionConfirmationInput {
+  txRef: string;
+  verification: GatewayVerification;
+  eventId?: string;
+}
+
+export type SubscriptionConfirmation = (input: SubscriptionConfirmationInput) => Promise<unknown>;
+
+const webhookSchema = z.object({
+  tx_ref: z.string().min(1).optional(),
+  reference: z.string().min(1).optional(),
+  status: z.string().optional(),
+  id: z.string().optional(),
+  event: z.object({ id: z.string().optional(), type: z.string().optional() }).optional(),
+});
+
 export class ChapaPaymentService {
-  constructor(private readonly db: PrismaClient) {}
+  private readonly gateway: PaymentGateway;
+  private readonly confirmSubscription?: SubscriptionConfirmation;
+
+  constructor(
+    private readonly db: PrismaClient,
+    gateway?: PaymentGateway,
+    confirmSubscription?: SubscriptionConfirmation,
+  ) {
+    this.gateway = gateway ?? createPaymentGateway();
+    this.confirmSubscription = confirmSubscription;
+  }
 
   generateTxRef(): string {
-    const timestamp = Date.now();
-    const random = crypto.randomBytes(4).toString("hex").toUpperCase();
-    return `GHMS-TX-${timestamp}-${random}`;
+    return generateTxRef();
   }
 
   generateReceiptNumber(): string {
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const random = crypto.randomBytes(3).toString("hex").toUpperCase();
-    return `REC-${dateStr}-${random}`;
+    return generateReceiptNumber();
+  }
+
+  private async audit(input: {
+    action: string;
+    outcome: string;
+    paymentId?: string;
+    eventId?: string;
+    hospitalId?: string;
+    actorId?: string;
+    detail?: string;
+    requestId?: string;
+  }) {
+    try {
+      await this.db.paymentAudit.create({ data: input });
+    } catch (error) {
+      logger.error({ err: error, action: input.action }, "Unable to persist payment audit record");
+    }
+  }
+
+  private assertInvoiceAccess(invoice: { hospitalId: string | null; patientId: string; status: string }, actor: PaymentActor) {
+    if (actor.role !== UserRole.SUPER_ADMIN && !actor.hospitalId) {
+      throw new HttpError(403, "No tenant association found for this user", "TENANT_REQUIRED");
+    }
+    if (actor.hospitalId && invoice.hospitalId && actor.hospitalId !== invoice.hospitalId) {
+      throw new HttpError(403, "Access denied to cross-hospital invoice", "FORBIDDEN");
+    }
+    if (!invoice.hospitalId) {
+      throw new HttpError(409, "Invoice is not associated with a hospital", "INVOICE_TENANT_MISSING");
+    }
+    if (actor.role === UserRole.PATIENT && (!actor.patientId || invoice.patientId !== actor.patientId)) {
+      throw new HttpError(403, "You can only pay for your own invoices", "FORBIDDEN");
+    }
+    if (invoice.status === InvoiceStatus.VOID) {
+      throw new HttpError(400, "This invoice has been voided", "INVOICE_VOID");
+    }
   }
 
   async initializePayment(input: ChapaInitInput) {
     const invoice = await this.db.invoice.findUnique({
       where: { id: input.invoiceId },
-      include: {
-        patient: { include: { user: true } },
-        items: true,
-      },
+      include: { patient: { include: { user: true } } },
     });
-
-    if (!invoice) {
-      throw new HttpError(404, "Invoice not found", "INVOICE_NOT_FOUND");
-    }
-
-    // Tenant isolation: if actor has hospitalId, ensure invoice matches
-    if (input.actor.hospitalId && invoice.hospitalId && input.actor.hospitalId !== invoice.hospitalId) {
-      throw new HttpError(403, "Access denied to cross-hospital invoice", "FORBIDDEN");
-    }
-
-    // Role security: if patient, ensure ownership
-    if (input.actor.role === UserRole.PATIENT) {
-      if (!input.actor.patientId || invoice.patientId !== input.actor.patientId) {
-        throw new HttpError(403, "You can only pay for your own invoices", "FORBIDDEN");
-      }
-    }
+    if (!invoice) throw new HttpError(404, "Invoice not found", "INVOICE_NOT_FOUND");
+    this.assertInvoiceAccess(invoice, input.actor);
 
     if (invoice.status === InvoiceStatus.PAID) {
       throw new HttpError(400, "This invoice is already fully paid", "ALREADY_PAID");
     }
-
     const total = Number(invoice.total);
     const paid = Number(invoice.paidAmount);
-    const remainingAmount = Math.max(0, total - paid);
+    const amount = Math.round((total - paid) * 100) / 100;
+    if (amount <= 0) throw new HttpError(400, "No outstanding balance for this invoice", "NO_BALANCE");
 
-    if (remainingAmount <= 0) {
-      throw new HttpError(400, "No outstanding balance for this invoice", "NO_BALANCE");
+    const pending = await this.db.payment.findFirst({
+      where: {
+        invoiceId: invoice.id,
+        method: PaymentMethod.CHAPA,
+        status: PaymentStatus.PENDING,
+        createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (pending?.checkoutUrl) {
+      return {
+        txRef: pending.chapaReference!,
+        receiptNumber: pending.receiptNumber,
+        invoiceNumber: invoice.invoiceNumber,
+        amount: Number(pending.amount),
+        currency: pending.currency,
+        checkoutUrl: pending.checkoutUrl,
+        isTestMode: this.gateway.simulated,
+      };
     }
 
     const txRef = this.generateTxRef();
-    const receiptNum = this.generateReceiptNumber();
-    const returnUrl = input.returnUrl || `${env.FRONTEND_URL}/patient-portal/billing?chapa_ref=${txRef}`;
-
-    const customerEmail = invoice.patient.email || invoice.patient.user?.email || "patient@gondar-hospital.et";
-    const firstName = invoice.patient.firstName;
-    const lastName = invoice.patient.lastName;
-
-    let checkoutUrl = "";
-    let isTestModeSimulation = false;
-
-    // Call real Chapa API if active key provided, otherwise simulate test mode checkout URL
-    if (env.CHAPA_SECRET_KEY && !env.CHAPA_SECRET_KEY.includes("mock")) {
-      try {
-        const chapaResponse = await fetch(`${env.CHAPA_BASE_URL}/transaction/initialize`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.CHAPA_SECRET_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            amount: remainingAmount.toFixed(2),
-            currency: "ETB",
-            email: customerEmail,
-            first_name: firstName,
-            last_name: lastName,
-            tx_ref: txRef,
-            callback_url: `${env.FRONTEND_URL}/api/v1/payments/chapa/webhook`,
-            return_url: returnUrl,
-            customization: {
-              title: "Gondar Hospital Management System",
-              description: `Payment for Invoice #${invoice.invoiceNumber}`,
-            },
-          }),
-        });
-
-        const chapaData = await chapaResponse.json() as any;
-        if (chapaData.status === "success" && chapaData.data?.checkout_url) {
-          checkoutUrl = chapaData.data.checkout_url;
-        } else {
-          logger.warn({ chapaData }, "Chapa API initialization notice, falling back to secure test checkout");
-          checkoutUrl = `${env.FRONTEND_URL}/patient-portal/billing?chapa_test_pay=${txRef}&amount=${remainingAmount}`;
-          isTestModeSimulation = true;
-        }
-      } catch (err) {
-        logger.error({ err }, "Chapa API network request error, using test mode simulation");
-        checkoutUrl = `${env.FRONTEND_URL}/patient-portal/billing?chapa_test_pay=${txRef}&amount=${remainingAmount}`;
-        isTestModeSimulation = true;
-      }
-    } else {
-      // Configured for local test mode
-      checkoutUrl = `${env.FRONTEND_URL}/patient-portal/billing?chapa_test_pay=${txRef}&amount=${remainingAmount}`;
-      isTestModeSimulation = true;
+    const receiptNumber = this.generateReceiptNumber();
+    const returnUrl = input.returnUrl ?? `${env.FRONTEND_URL}/patient-portal/billing?chapa_ref=${txRef}`;
+    const parseUrl = (value: string) => {
+      try { return new URL(value); } catch { return null; }
+    };
+    if (parseUrl(returnUrl)?.origin !== parseUrl(env.FRONTEND_URL)?.origin) {
+      throw new HttpError(400, "returnUrl must belong to the configured frontend origin", "INVALID_RETURN_URL");
     }
 
-    // Persist pending payment record
     const payment = await this.db.payment.create({
       data: {
-        receiptNumber: receiptNum,
+        receiptNumber,
         invoiceId: invoice.id,
         receivedById: input.actor.userId,
-        hospitalId: invoice.hospitalId || input.actor.hospitalId,
+        hospitalId: invoice.hospitalId,
         method: PaymentMethod.CHAPA,
-        amount: remainingAmount,
-        currency: "ETB",
+        amount,
+        currency: invoice.currency,
         transactionReference: txRef,
         chapaReference: txRef,
         gatewayProvider: "CHAPA",
-        checkoutUrl,
-        notes: `Chapa payment initiated: ${txRef} (${isTestModeSimulation ? "Test Mode" : "Live"})`,
-        status: PaymentStatus.VALIDATED, // pending confirmation in production, initialized in db
+        notes: `Chapa payment initiated for invoice ${invoice.invoiceNumber}`,
+        status: PaymentStatus.PENDING,
       },
     });
 
+    let checkoutUrl: string;
+    try {
+      const result = await this.gateway.initialize({
+        txRef,
+        amount,
+        currency: invoice.currency,
+        email: invoice.patient.email || invoice.patient.user?.email || "",
+        firstName: invoice.patient.firstName,
+        lastName: invoice.patient.lastName,
+        returnUrl,
+        description: `Payment for Invoice #${invoice.invoiceNumber}`,
+        metadata: { kind: "INVOICE", hospitalId: invoice.hospitalId, invoiceId: invoice.id },
+      });
+      checkoutUrl = result.checkoutUrl;
+      await this.db.payment.update({
+        where: { id: payment.id },
+        data: { checkoutUrl, notes: `${payment.notes} (${result.simulated ? "simulation" : "live"})` },
+      });
+    } catch (error) {
+      await this.db.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.FAILED, failureReason: error instanceof Error ? error.message.slice(0, 300) : "Gateway error" },
+      });
+      await this.audit({ action: "PAYMENT_INITIATED", outcome: "FAILED", paymentId: payment.id, hospitalId: invoice.hospitalId, actorId: input.actor.userId });
+      throw error;
+    }
+
+    await this.audit({ action: "PAYMENT_INITIATED", outcome: "SUCCESS", paymentId: payment.id, hospitalId: invoice.hospitalId, actorId: input.actor.userId, detail: txRef });
     return {
       txRef,
-      receiptNumber: receiptNum,
+      receiptNumber,
       invoiceNumber: invoice.invoiceNumber,
-      amount: remainingAmount,
-      currency: "ETB",
+      amount,
+      currency: invoice.currency,
       checkoutUrl,
-      isTestMode: isTestModeSimulation,
+      isTestMode: this.gateway.simulated,
     };
   }
 
-  async verifyPayment(txRef: string) {
+  async verifyPayment(txRef: string, actor?: PaymentActor, eventId?: string) {
     const payment = await this.db.payment.findUnique({
       where: { chapaReference: txRef },
-      include: {
-        invoice: {
-          include: { patient: true },
-        },
-      },
+      include: { invoice: { include: { patient: true } } },
     });
+    if (!payment) throw new HttpError(404, "Payment record not found for transaction reference", "PAYMENT_NOT_FOUND");
+    if (actor) this.assertInvoiceAccess(payment.invoice, actor);
 
-    if (!payment) {
-      throw new HttpError(404, "Payment record not found for transaction reference", "PAYMENT_NOT_FOUND");
+    if (payment.verifiedAt && payment.status === PaymentStatus.VALIDATED) {
+      await this.audit({ action: "PAYMENT_VERIFIED", outcome: "ALREADY_SETTLED", paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined });
+      return this.settledResult(payment);
     }
 
-    // If already verified and invoice updated
-    if (payment.verifiedAt) {
-      return {
-        success: true,
-        status: "SUCCESSFUL",
-        paymentId: payment.id,
-        receiptNumber: payment.receiptNumber,
-        amount: Number(payment.amount),
-        currency: payment.currency,
-        invoiceId: payment.invoiceId,
-        invoiceNumber: payment.invoice.invoiceNumber,
-        invoiceStatus: payment.invoice.status,
-      };
+    let verification: GatewayVerification;
+    try {
+      verification = await this.gateway.verify(txRef);
+    } catch (error) {
+      await this.audit({ action: "PAYMENT_VERIFY_FAILED", outcome: "GATEWAY_ERROR", paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined });
+      throw error;
     }
 
-    // Call Chapa verify endpoint if not mock key
-    let verifiedSuccessfully = true;
-    let chapaFee = 0;
-
-    if (env.CHAPA_SECRET_KEY && !env.CHAPA_SECRET_KEY.includes("mock")) {
-      try {
-        const verifyRes = await fetch(`${env.CHAPA_BASE_URL}/transaction/verify/${txRef}`, {
-          headers: { Authorization: `Bearer ${env.CHAPA_SECRET_KEY}` },
+    if (verification.status !== "SUCCESSFUL") {
+      const failureReason = verification.status === "PENDING" ? "Payment is still pending at Chapa" : "Payment was not completed at Chapa";
+      if (verification.status === "FAILED") {
+        await this.db.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.FAILED, failureReason, rawCallbackData: JSON.stringify(verification.raw).slice(0, 60_000) },
         });
-        const verifyData = await verifyRes.json() as any;
-        if (verifyData.status === "success" && verifyData.data?.status === "success") {
-          verifiedSuccessfully = true;
-          chapaFee = Number(verifyData.data.charge || 0);
-        } else {
-          verifiedSuccessfully = false;
-        }
-      } catch (e) {
-        logger.error({ e }, "Error verifying with Chapa API, evaluating test transaction");
       }
+      await this.audit({ action: "PAYMENT_VERIFY_FAILED", outcome: verification.status, paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined, detail: failureReason });
+      return { success: false, status: verification.status, txRef, message: failureReason };
     }
 
-    if (!verifiedSuccessfully) {
-      throw new HttpError(400, "Transaction verification failed with Chapa", "VERIFICATION_FAILED");
+    const gatewayAmount = verification.amount === undefined ? Number(payment.amount) : Number(verification.amount);
+    const gatewayCurrency = verification.currency ?? payment.currency;
+    if (Math.abs(gatewayAmount - Number(payment.amount)) > 0.01 || gatewayCurrency !== payment.currency) {
+      const detail = `Expected ${payment.amount} ${payment.currency}, gateway reported ${gatewayAmount} ${gatewayCurrency}`;
+      await this.db.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.FAILED, failureReason: "Amount or currency mismatch" } });
+      await this.audit({ action: "PAYMENT_AMOUNT_MISMATCH", outcome: "REJECTED", paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined, detail });
+      throw new HttpError(409, "Payment amount does not match the invoice", "AMOUNT_MISMATCH");
     }
 
-    // Atomic transaction: update payment and invoice status
-    return this.db.$transaction(async (tx) => {
-      const now = new Date();
-      const updatedPayment = await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          verifiedAt: now,
-          gatewayFee: chapaFee,
-          status: PaymentStatus.VALIDATED,
-        },
-      });
-
-      const currentInvoice = await tx.invoice.findUniqueOrThrow({
-        where: { id: payment.invoiceId },
-      });
-
-      const newPaidAmount = Number(currentInvoice.paidAmount) + Number(payment.amount);
-      const isFullyPaid = newPaidAmount >= Number(currentInvoice.total);
-
-      const updatedInvoice = await tx.invoice.update({
-        where: { id: payment.invoiceId },
-        data: {
-          paidAmount: newPaidAmount,
-          status: isFullyPaid ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID,
-          finalizedAt: isFullyPaid ? now : currentInvoice.finalizedAt,
-        },
-      });
-
-      return {
-        success: true,
-        status: "SUCCESSFUL",
-        paymentId: updatedPayment.id,
-        receiptNumber: updatedPayment.receiptNumber,
-        amount: Number(updatedPayment.amount),
-        currency: updatedPayment.currency,
-        invoiceId: updatedInvoice.id,
-        invoiceNumber: updatedInvoice.invoiceNumber,
-        invoiceStatus: updatedInvoice.status,
-        verifiedAt: now.toISOString(),
-      };
+    const now = new Date();
+    const claimed = await this.db.payment.updateMany({
+      where: { id: payment.id, verifiedAt: null, status: { not: PaymentStatus.REVERSED } },
+      data: { verifiedAt: now, status: PaymentStatus.VALIDATED, gatewayFee: verification.fee ?? 0, rawCallbackData: JSON.stringify(verification.raw).slice(0, 60_000) },
     });
-  }
+    if (claimed.count === 0) {
+      const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+      await this.audit({ action: "PAYMENT_VERIFIED", outcome: "ALREADY_SETTLED", paymentId: payment.id, eventId, hospitalId: payment.hospitalId ?? undefined });
+      return this.settledResult(settled);
+    }
 
-  async handleWebhook(body: any, signature?: string) {
-    // Chapa sends HMAC SHA256 of the body in 'x-chapa-signature'
-    if (env.CHAPA_WEBHOOK_SECRET && !env.CHAPA_WEBHOOK_SECRET.includes("mock") && signature) {
-      const hash = crypto
-        .createHmac("sha256", env.CHAPA_WEBHOOK_SECRET)
-        .update(JSON.stringify(body))
-        .digest("hex");
-
-      if (hash !== signature) {
-        throw new HttpError(401, "Invalid webhook signature", "INVALID_SIGNATURE");
+    await this.db.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: payment.invoiceId } });
+      if (invoice.status === InvoiceStatus.VOID) {
+        throw new HttpError(409, "Invoice is void; payment cannot settle", "INVOICE_VOID");
       }
-    }
+      const newPaid = Number(invoice.paidAmount) + Number(payment.amount);
+      const fullyPaid = newPaid >= Number(invoice.total);
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          paidAmount: newPaid,
+          status: fullyPaid ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID,
+          finalizedAt: fullyPaid ? now : invoice.finalizedAt,
+        },
+      });
+    });
 
-    const txRef = body.tx_ref || body.reference;
-    if (!txRef) {
-      throw new HttpError(400, "Missing transaction reference in webhook", "MISSING_TX_REF");
-    }
-
-    logger.info({ txRef }, "Processing Chapa webhook event");
-    return this.verifyPayment(txRef);
+    await this.audit({
+      action: "PAYMENT_SETTLED",
+      outcome: "SUCCESS",
+      paymentId: payment.id,
+      eventId,
+      hospitalId: payment.hospitalId ?? undefined,
+      detail: `${payment.amount} ${payment.currency} applied to ${payment.invoiceId}`,
+    });
+    const settled = await this.db.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    return this.settledResult(settled);
   }
 
-  async getReceipt(paymentId: string) {
+  private settledResult(payment: { id: string; receiptNumber: string; amount: Prisma.Decimal; currency: string; invoiceId: string; verifiedAt: Date | null; invoice: { invoiceNumber: string; status: InvoiceStatus } }) {
+    return {
+      success: true,
+      status: "SUCCESSFUL",
+      paymentId: payment.id,
+      receiptNumber: payment.receiptNumber,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      invoiceId: payment.invoiceId,
+      invoiceNumber: payment.invoice.invoiceNumber,
+      invoiceStatus: payment.invoice.status,
+      verifiedAt: payment.verifiedAt instanceof Date ? payment.verifiedAt.toISOString() : undefined,
+    };
+  }
+
+  async handleWebhook(rawBody: Buffer, signatures: string[], headers: Record<string, string | undefined>) {
+    if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+      throw new HttpError(400, "Webhook body is required", "INVALID_WEBHOOK_BODY");
+    }
+    this.gateway.verifyWebhookSignature(rawBody, signatures);
+
+    let body: z.infer<typeof webhookSchema>;
+    try {
+      body = webhookSchema.parse(JSON.parse(rawBody.toString("utf8")));
+    } catch {
+      throw new HttpError(400, "Invalid webhook payload", "INVALID_WEBHOOK_BODY");
+    }
+
+    const txRef = body.tx_ref ?? body.reference;
+    if (!txRef) throw new HttpError(400, "Missing transaction reference in webhook", "MISSING_TX_REF");
+    const eventId = headers["x-chapa-event-id"] ?? body.id ?? body.event?.id ?? crypto.createHash("sha256").update(rawBody).digest("hex");
+
+    try {
+      await this.db.paymentEvent.create({
+        data: {
+          eventId,
+          kind: isSubscriptionTxRef(txRef) ? "SUBSCRIPTION" : "INVOICE",
+          txRef,
+          signatureHash: crypto.createHash("sha256").update(rawBody).digest("hex"),
+          payload: rawBody.toString("utf8").slice(0, 60_000),
+          status: "RECEIVED",
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        await this.audit({ action: "WEBHOOK_REPLAY_REJECTED", outcome: "DUPLICATE", eventId, detail: eventId });
+        return { duplicate: true, eventId, status: "IGNORED" };
+      }
+      throw error;
+    }
+
+    try {
+      let result: unknown;
+      if (isSubscriptionTxRef(txRef)) {
+        if (!this.confirmSubscription) throw new HttpError(503, "Subscription billing is unavailable", "SUBSCRIPTION_BILLING_UNAVAILABLE");
+        result = await this.confirmSubscription({ txRef, verification: await this.gateway.verify(txRef), eventId });
+      } else {
+        result = await this.verifyPayment(txRef, undefined, eventId);
+      }
+      await this.db.paymentEvent.update({ where: { eventId }, data: { status: "PROCESSED" } });
+      await this.audit({ action: "WEBHOOK_PROCESSED", outcome: "SUCCESS", eventId, detail: txRef });
+      return { duplicate: false, eventId, status: "PROCESSED", data: result };
+    } catch (error) {
+      await this.db.paymentEvent.update({ where: { eventId }, data: { status: "FAILED" } });
+      await this.audit({ action: "WEBHOOK_PROCESSED", outcome: "FAILED", eventId, detail: error instanceof Error ? error.message.slice(0, 300) : undefined });
+      throw error;
+    }
+  }
+
+  async getReceipt(paymentId: string, actor: PaymentActor) {
     const payment = await this.db.payment.findUnique({
       where: { id: paymentId },
       include: {
-        hospital: true,
-        invoice: {
-          include: {
-            patient: true,
-            items: true,
-          },
-        },
-        receivedBy: {
-          select: { firstName: true, lastName: true },
-        },
+        hospital: { select: { name: true, city: true, phone: true, email: true } },
+        invoice: { include: { patient: true, items: true } },
+        receivedBy: { select: { firstName: true, lastName: true } },
       },
     });
-
     if (!payment) throw new HttpError(404, "Payment receipt not found", "NOT_FOUND");
+    this.assertInvoiceAccess(payment.invoice, actor);
+    if (!payment.verifiedAt || payment.status !== PaymentStatus.VALIDATED) {
+      throw new HttpError(409, "Receipt is available only for verified payments", "PAYMENT_NOT_VERIFIED");
+    }
+    if (actor.role !== UserRole.SUPER_ADMIN && actor.role !== UserRole.ADMINISTRATOR && actor.role !== UserRole.FINANCE_OFFICER && actor.role !== UserRole.PATIENT) {
+      throw new HttpError(403, "You are not authorized to view payment receipts", "FORBIDDEN");
+    }
+    await this.audit({ action: "PAYMENT_RECEIPT_VIEWED", outcome: "SUCCESS", paymentId: payment.id, hospitalId: payment.hospitalId ?? undefined, actorId: actor.userId });
 
     return {
       receiptNumber: payment.receiptNumber,
-      transactionReference: payment.chapaReference || payment.transactionReference,
+      transactionReference: payment.chapaReference ?? payment.transactionReference,
       paymentDate: payment.receivedAt.toISOString(),
-      verifiedAt: payment.verifiedAt?.toISOString(),
+      verifiedAt: payment.verifiedAt.toISOString(),
       method: payment.method,
       gateway: payment.gatewayProvider,
       amount: Number(payment.amount),
       currency: payment.currency,
-      hospital: {
-        name: payment.hospital?.name || "Gondar University Comprehensive Specialized Hospital",
-        city: payment.hospital?.city || "Gondar",
-        phone: payment.hospital?.phone || "+251 58 114 1234",
-        email: payment.hospital?.email || "info@gondar-hospital.et",
-      },
+      hospital: payment.hospital,
       patient: {
         name: `${payment.invoice.patient.firstName} ${payment.invoice.patient.lastName}`,
         patientNumber: payment.invoice.patient.patientNumber,
@@ -327,51 +403,33 @@ export class ChapaPaymentService {
     };
   }
 
-  async getPaymentAnalytics(hospitalId?: string) {
+  async getPaymentAnalytics(hospitalId?: string, platformWide = false) {
+    if (!hospitalId && !platformWide) throw new HttpError(403, "A hospital scope is required for payment analytics", "TENANT_REQUIRED");
     const where = hospitalId ? { hospitalId } : {};
-
     const [payments, invoices] = await Promise.all([
       this.db.payment.findMany({
         where,
-        select: {
-          amount: true,
-          method: true,
-          gatewayProvider: true,
-          status: true,
-          receivedAt: true,
-          verifiedAt: true,
-        },
+        select: { amount: true, status: true, receivedAt: true, gatewayProvider: true, method: true },
       }),
-      this.db.invoice.findMany({
-        where,
-        select: {
-          total: true,
-          paidAmount: true,
-          status: true,
-        },
-      }),
+      this.db.invoice.findMany({ where, select: { total: true, paidAmount: true, status: true } }),
     ]);
-
-    const totalCollectedEtb = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const chapaPayments = payments.filter((p) => p.gatewayProvider === "CHAPA" || p.method === PaymentMethod.CHAPA);
-    const chapaRevenueEtb = chapaPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-
-    const totalInvoicedEtb = invoices.reduce((sum, i) => sum + Number(i.total), 0);
-    const outstandingEtb = invoices.reduce((sum, i) => sum + Math.max(0, Number(i.total) - Number(i.paidAmount)), 0);
-
+    const verified = payments.filter((p) => p.status === PaymentStatus.VALIDATED);
+    const chapa = verified.filter((p) => p.gatewayProvider === "CHAPA" || p.method === PaymentMethod.CHAPA);
+    const sum = (values: { amount: Prisma.Decimal }[]) => values.reduce((acc, item) => acc + Number(item.amount), 0);
     return {
       revenue: {
-        totalCollectedEtb,
-        chapaRevenueEtb,
-        totalInvoicedEtb,
-        outstandingEtb,
+        totalCollectedEtb: sum(verified),
+        chapaRevenueEtb: sum(chapa),
+        totalInvoicedEtb: invoices.reduce((acc, item) => acc + Number(item.total), 0),
+        outstandingEtb: invoices.reduce((acc, item) => acc + Math.max(0, Number(item.total) - Number(item.paidAmount)), 0),
       },
       counts: {
         totalPayments: payments.length,
-        chapaPaymentsCount: chapaPayments.length,
+        verifiedPayments: verified.length,
+        pendingPayments: payments.filter((p) => p.status === PaymentStatus.PENDING).length,
+        failedPayments: payments.filter((p) => p.status === PaymentStatus.FAILED).length,
         totalInvoices: invoices.length,
         paidInvoices: invoices.filter((i) => i.status === InvoiceStatus.PAID).length,
-        unpaidInvoices: invoices.filter((i) => i.status === InvoiceStatus.UNPAID).length,
       },
     };
   }

@@ -1,22 +1,8 @@
 import { Router } from "express";
 import { UserRole } from "@prisma/client";
-import { z } from "zod";
 import { authenticate, requireRole } from "../../middleware/authenticate.js";
-import { HttpError } from "../../utils/http-error.js";
+import { parseId, param } from "../../utils/params.js";
 import type { PortalService } from "./service.js";
-
-const uuidParam = z.string().uuid();
-
-function parseId(value: string | string[]) {
-  const parsed = uuidParam.safeParse(value);
-  if (!parsed.success) throw new HttpError(400, "Invalid resource identifier", "VALIDATION_ERROR");
-  return parsed.data;
-}
-
-function param(value: string | string[]) {
-  if (Array.isArray(value)) throw new HttpError(400, "Invalid route parameter", "VALIDATION_ERROR");
-  return value;
-}
 
 export function portalRoutes(service: PortalService) {
   const router = Router();

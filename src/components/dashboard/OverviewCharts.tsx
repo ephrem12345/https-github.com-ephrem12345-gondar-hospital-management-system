@@ -19,14 +19,7 @@ import {
 } from "recharts";
 import { Card, CardHeader } from "@/components/ui/Card";
 import type { DashboardDataBundle } from "@/services";
-
-function formatCurrency(num: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "ETB",
-    maximumFractionDigits: 0,
-  }).format(num);
-}
+import { formatCurrency } from "@/lib/utils/formatters";
 
 export interface PrimaryOverviewChartsProps {
   chartMetrics: Array<{

@@ -15,29 +15,13 @@ import {
   queueStatusSchema,
   queueTransferSchema,
 } from "./schemas.js";
+import { addLocalDays, dayOfWeek, localDateTime, toQueueDate } from "../../utils/date.js";
+export { addLocalDays, dayOfWeek, localDateTime, toQueueDate };
 
 type AppointmentInput = z.infer<typeof appointmentInputSchema>;
 type AppointmentQuery = z.infer<typeof appointmentListQuerySchema>;
 type QueueQuery = z.infer<typeof queueListQuerySchema>;
 type Actor = NonNullable<Express.Request["actor"]>;
-
-const addLocalDays = (date: string, days: number) => {
-  const parsed = new Date(`${date}T00:00:00Z`);
-  parsed.setUTCDate(parsed.getUTCDate() + days);
-  return parsed.toISOString().slice(0, 10);
-};
-
-export function localDateTime(date: string, time: string): Date {
-  return new Date(`${date}T${time}:00+03:00`);
-}
-
-export function toQueueDate(date: string): Date {
-  return new Date(`${date}T00:00:00.000Z`);
-}
-
-function dayOfWeek(date: string): number {
-  return new Date(`${date}T00:00:00Z`).getUTCDay();
-}
 
 export function isAvailableAt(
   schedule: { startTime: string; endTime: string; breakStart: string | null; breakEnd: string | null; slotDurationMins: number },

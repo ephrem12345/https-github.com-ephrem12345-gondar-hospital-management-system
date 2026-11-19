@@ -1,4 +1,4 @@
-import { Archive, Boxes, CalendarCheck, Droplets, FolderHeart, Package, Sparkles, Wrench } from "lucide-react";
+import { Archive, Boxes, CalendarCheck, Droplets, FolderHeart, Package, Wrench } from "lucide-react";
 import type { ModuleScreen, AnyRow } from "@/modules/types";
 import type { Column } from "@/components/ui/DataTable";
 

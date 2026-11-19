@@ -6,7 +6,6 @@ import {
   LogIn,
   Repeat,
   Stethoscope,
-  UserPlus,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -19,7 +18,6 @@ import type {
   LeaveRequestRecord,
   PayslipRecord,
   ShiftRecord,
-  StaffCategory,
 } from "@/services/finance-hr";
 
 // ------------------------------------------------------------------ Employees

@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import type { PrismaClient, User, UserRole, AccountStatus } from "@prisma/client";
 import { env } from "../../config/env.js";
 import { HttpError } from "../../utils/http-error.js";
+import type { SaasService } from "../saas/service.js";
 
 const ACCESS_COOKIE = "ghms_access";
 const REFRESH_COOKIE = "ghms_refresh";
@@ -58,15 +59,25 @@ function presentUser(user: UserWithPatient) {
 }
 
 export class AuthService {
-  constructor(private readonly database: PrismaClient) {}
+  constructor(
+    private readonly database: PrismaClient,
+    private readonly saas?: Pick<SaasService, "assertLimits">,
+  ) {}
 
-  private async issueAccessToken(user: UserWithPatient) {
+  private async issueAccessToken(user: UserWithPatient & { hospitalId?: string | null }) {
     const department = user.department ?? user.doctor?.department;
     return jwt.sign({
       role: user.role,
+      ...(user.hospitalId ? { hospitalId: user.hospitalId } : {}),
       ...(user.patient ? { patientId: user.patient.id } : {}),
       ...(department ? { department } : {}),
-    }, env.JWT_ACCESS_SECRET, { subject: user.id, expiresIn: env.JWT_ACCESS_TTL_SECONDS });
+    }, env.JWT_ACCESS_SECRET, {
+      subject: user.id,
+      issuer: env.JWT_ISSUER,
+      audience: "ghms-web",
+      expiresIn: env.JWT_ACCESS_TTL_SECONDS,
+      algorithm: "HS256",
+    });
   }
 
   private async audit(userId: string | null, action: string, requestId: string) {
@@ -111,6 +122,9 @@ export class AuthService {
 
     const lockout = failedLoginTracker.get(normalized);
     const now = Date.now();
+    if (lockout?.lockedUntil && lockout.lockedUntil <= now) {
+      failedLoginTracker.delete(normalized);
+    }
     if (lockout && lockout.lockedUntil && lockout.lockedUntil > now) {
       const remainingMinutes = Math.ceil((lockout.lockedUntil - now) / 60000);
       void this.audit(null, "AUTH_LOGIN_LOCKED", requestId);
@@ -205,6 +219,7 @@ export class AuthService {
     email: string;
     address: string;
     password: string;
+    hospitalCode?: string;
   }, requestId: string) {
     const email = input.email.trim().toLowerCase();
     const phone = input.phone.trim();
@@ -232,6 +247,18 @@ export class AuthService {
 
     const initialStatus: AccountStatus = env.PATIENT_REGISTRATION_REQUIRES_VERIFICATION ? "PENDING" : "ACTIVE";
 
+    const hospital = input.hospitalCode
+      ? await this.database.hospital.findUnique({ where: { code: input.hospitalCode.toLowerCase().trim() }, select: { id: true, status: true } })
+      : await this.database.hospital.findFirst({
+          where: { status: { in: ["TRIAL", "ACTIVE"] } },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, status: true },
+        });
+    if (!hospital || hospital.status === "SUSPENDED" || hospital.status === "CANCELLED") {
+      throw new HttpError(404, "Hospital not found or registration is closed", "HOSPITAL_NOT_FOUND");
+    }
+    await this.saas?.assertLimits(hospital.id, "patients");
+
     const user = await this.database.user.create({
       data: {
         email,
@@ -239,12 +266,14 @@ export class AuthService {
         passwordHash,
         role: "PATIENT",
         status: initialStatus,
+        hospitalId: hospital.id,
         firstName: input.firstName.trim(),
         middleName: input.middleName?.trim() || null,
         lastName: input.lastName.trim(),
         patient: {
           create: {
             patientNumber: `GHMS-${randomBytes(6).toString("hex").toUpperCase()}`,
+            hospitalId: hospital.id,
             firstName: input.firstName.trim(),
             middleName: input.middleName?.trim() || null,
             lastName: input.lastName.trim(),
@@ -444,12 +473,15 @@ export class AuthService {
     search?: string;
     page?: number;
     limit?: number;
+    hospitalId?: string;
   }) {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
     const where: import("@prisma/client").Prisma.UserWhereInput = {};
+    if (!query.hospitalId) throw new HttpError(403, "A hospital scope is required", "TENANT_REQUIRED");
+    where.hospitalId = query.hospitalId;
     if (query.role) {
       where.role = query.role as UserRole;
     }
@@ -524,18 +556,20 @@ export class AuthService {
     newStatus: "ACTIVE" | "PENDING" | "DISABLED",
     adminActorId: string,
     requestId: string,
-    reason?: string
+    reason?: string,
+    actorHospitalId?: string
   ) {
+    if (!actorHospitalId) throw new HttpError(403, "No tenant association found for this user", "TENANT_REQUIRED");
     if (targetUserId === adminActorId) {
       throw new HttpError(400, "Administrators cannot modify their own account status", "CANNOT_MODIFY_OWN_STATUS");
     }
 
     const targetUser = await this.database.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, email: true, role: true, status: true },
+      select: { id: true, email: true, role: true, status: true, hospitalId: true },
     });
 
-    if (!targetUser) {
+    if (!targetUser || targetUser.hospitalId !== actorHospitalId) {
       throw new HttpError(404, "User not found", "USER_NOT_FOUND");
     }
 
@@ -589,9 +623,12 @@ export class AuthService {
       password: string;
     },
     adminActorId: string,
-    requestId: string
+    requestId: string,
+    actorHospitalId?: string
   ) {
     const email = input.email.trim().toLowerCase();
+    if (!actorHospitalId) throw new HttpError(403, "No tenant association found for this user", "TENANT_REQUIRED");
+    await this.saas?.assertLimits(actorHospitalId, "staff");
     const phone = input.phone?.trim() || null;
 
     const existingEmail = await this.database.user.findFirst({
@@ -622,6 +659,7 @@ export class AuthService {
         passwordHash,
         role: input.role,
         status: "PENDING",
+        hospitalId: actorHospitalId,
         firstName: input.firstName.trim(),
         middleName: input.middleName?.trim() || null,
         lastName: input.lastName.trim(),

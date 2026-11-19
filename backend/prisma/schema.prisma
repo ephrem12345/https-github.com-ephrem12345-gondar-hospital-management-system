@@ -180,6 +180,8 @@ enum PaymentMethod {
 }
 
 enum PaymentStatus {
+  PENDING
+  FAILED
   VALIDATED
   REVERSED
 }
@@ -219,6 +221,7 @@ enum HospitalStatus {
 }
 
 enum SubscriptionTier {
+  FREE
   BASIC
   PROFESSIONAL
   ENTERPRISE
@@ -236,6 +239,26 @@ enum SubscriptionStatus {
 enum BillingCycle {
   MONTHLY
   ANNUAL
+}
+
+enum MediaAssetCategory {
+  HOSPITAL_LOGO
+  HOSPITAL_BANNER
+  STAFF_AVATAR
+  DEPARTMENT_IMAGE
+  PATIENT_DOCUMENT
+  MEDICAL_REPORT
+  PUBLIC_DOCUMENT
+}
+
+enum MediaAssetStatus {
+  ACTIVE
+  DELETED
+}
+
+enum MediaAccessMode {
+  PUBLIC
+  AUTHENTICATED
 }
 
 model Hospital {
@@ -266,6 +289,9 @@ model Hospital {
   appointments          Appointment[]
   conversations         Conversation[]
   assets                HospitalAsset[]
+  mediaAssets           MediaAsset[]
+  subscriptionPayments  SubscriptionPayment[]
+  auditLogs             AuditLog[]
 
   @@index([status, createdAt])
   @@index([tier])
@@ -311,6 +337,80 @@ model HospitalSubscription {
 
   @@index([hospitalId, status])
   @@index([status, currentPeriodEnd])
+}
+
+model SubscriptionPayment {
+  id             String           @id @default(uuid()) @db.Char(36)
+  txRef          String           @unique @db.VarChar(120)
+  hospitalId     String           @db.Char(36)
+  planCode       SubscriptionTier
+  cycle          BillingCycle
+  amount         Decimal          @db.Decimal(12, 2)
+  currency       String           @default("ETB") @db.Char(3)
+  status         PaymentStatus    @default(PENDING)
+  checkoutUrl    String?          @db.VarChar(500)
+  returnUrl      String?          @db.VarChar(500)
+  gatewayFee     Decimal?         @db.Decimal(10, 2)
+  verifiedAt     DateTime?
+  paidAt         DateTime?
+  failureReason  String?          @db.VarChar(300)
+  subscriptionId String?          @db.Char(36)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  hospital       Hospital         @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+
+  @@index([hospitalId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PaymentEvent {
+  id            String   @id @default(uuid()) @db.Char(36)
+  eventId       String   @unique @db.VarChar(190)
+  kind          String   @db.VarChar(30)
+  txRef         String   @db.VarChar(120)
+  signatureHash String   @db.VarChar(64)
+  payload       String   @db.Text
+  status        String   @db.VarChar(30)
+  createdAt     DateTime @default(now())
+
+  @@index([txRef, createdAt])
+}
+
+model PaymentAudit {
+  id         String   @id @default(uuid()) @db.Char(36)
+  paymentId  String?  @db.VarChar(36)
+  eventId    String?  @db.VarChar(190)
+  action     String   @db.VarChar(60)
+  hospitalId String?  @db.Char(36)
+  actorId    String?  @db.Char(36)
+  outcome    String   @db.VarChar(30)
+  detail     String?  @db.Text
+  requestId  String?  @db.VarChar(64)
+  createdAt  DateTime @default(now())
+
+  @@index([paymentId, createdAt])
+  @@index([hospitalId, createdAt])
+}
+
+model MediaAsset {
+  id           String            @id @default(uuid()) @db.Char(36)
+  hospitalId   String?           @db.Char(36)
+  uploadedById String            @db.Char(36)
+  publicId     String            @unique @db.VarChar(255)
+  secureUrl    String            @db.VarChar(500)
+  category     MediaAssetCategory
+  mimeType     String            @db.VarChar(100)
+  sizeBytes    Int
+  format       String?           @db.VarChar(20)
+  accessMode   MediaAccessMode   @default(PUBLIC)
+  assetTag     String?           @db.VarChar(120)
+  status       MediaAssetStatus  @default(ACTIVE)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  hospital     Hospital?         @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  uploadedBy   User              @relation("MediaUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([hospitalId, category, status])
 }
 
 model User {
@@ -399,6 +499,7 @@ model User {
   tasksAssigned            ClinicalTask[]         @relation("TasksAssigned")
   attachmentsUploaded      MessageAttachment[]    @relation("AttachmentUploader")
   communicationSettings    UserCommunicationSettings?
+  mediaAssets              MediaAsset[]           @relation("MediaUploader")
 
   @@index([role, status])
   @@index([hospitalId, role])
@@ -619,15 +720,18 @@ model PasswordReset {
 model AuditLog {
   id         String   @id @default(uuid()) @db.Char(36)
   actorId    String?  @db.Char(36)
+  hospitalId String?  @db.Char(36)
   action     String   @db.VarChar(100)
   entityType String   @db.VarChar(80)
   entityId   String?  @db.VarChar(80)
   requestId  String?  @db.VarChar(64)
   createdAt  DateTime @default(now())
   actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
   @@index([entityType, entityId, createdAt])
+  @@index([hospitalId, createdAt])
 }
 
 model ClinicalEncounter {
@@ -1261,8 +1365,9 @@ model Payment {
   verifiedAt           DateTime?
   gatewayFee           Decimal?      @db.Decimal(10, 2)
   rawCallbackData      String?       @db.Text
+  failureReason        String?       @db.VarChar(300)
   notes                String?       @db.VarChar(300)
-  status               PaymentStatus @default(VALIDATED)
+  status               PaymentStatus @default(PENDING)
   receivedAt           DateTime      @default(now())
   invoice              Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   receivedBy           User          @relation("PaymentReceiver", fields: [receivedById], references: [id], onDelete: Restrict)

@@ -4,19 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
   Banknote,
-  BedDouble,
   CalendarCheck,
   CalendarRange,
-  Clock3,
   Download,
   FlaskConical,
   HeartPulse,
   Pill,
   RefreshCcw,
-  ShieldAlert,
   Stethoscope,
   Users,
   type LucideIcon,
@@ -30,7 +26,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { dashboardService, authService, type DashboardDataBundle } from "@/services";
-import type { DashboardActivityItem, DashboardAppointmentOverview, DashboardEmergencyCase, DashboardPharmacyAlert } from "@/types";
+import type { DashboardActivityItem, DashboardAppointmentOverview } from "@/types";
 
 const PrimaryOverviewCharts = dynamic(
   () => import("@/components/dashboard/OverviewCharts").then((mod) => mod.PrimaryOverviewCharts),
@@ -80,14 +76,6 @@ const dateFilterOptions = [
 
 type LoadState = "loading" | "ready" | "error";
 type RangePreset = (typeof dateFilterOptions)[number]["value"];
-
-function formatCurrency(num: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "ETB",
-    maximumFractionDigits: 0,
-  }).format(num);
-}
 
 function formatDateLabel(date: Date) {
   return new Intl.DateTimeFormat("en-US", {

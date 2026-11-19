@@ -1,9 +1,9 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
-import { UserRole } from "@prisma/client";
-import { authenticate, requireRole, requireSuperAdmin } from "../../middleware/authenticate.js";
+import { HospitalStatus, SubscriptionTier, UserRole } from "@prisma/client";
+import { authenticate, requireRole, requireSuperAdmin, requireTenant } from "../../middleware/authenticate.js";
 import { HttpError } from "../../utils/http-error.js";
-import type { SaasService } from "./service.js";
+import { subscriptionSchemas, type SaasService } from "./service.js";
 
 const hospitalRegistrationSchema = z.object({
   name: z.string().min(2).max(160),
@@ -14,21 +14,12 @@ const hospitalRegistrationSchema = z.object({
   city: z.string().max(80).optional(),
   region: z.string().max(80).optional(),
   hospitalType: z.string().max(60).optional(),
-  tier: z.enum(["BASIC", "PROFESSIONAL", "ENTERPRISE"]).optional(),
+  tier: z.enum(["FREE", "BASIC", "PROFESSIONAL", "ENTERPRISE"]).optional(),
   contactPerson: z.string().max(120).optional(),
   contactPhone: z.string().max(32).optional(),
 });
 
-const hospitalStatusSchema = z.object({
-  status: z.enum(["TRIAL", "ACTIVE", "SUSPENDED", "CANCELLED"]),
-});
-
-const subscriptionRenewalSchema = z.object({
-  planCode: z.enum(["BASIC", "PROFESSIONAL", "ENTERPRISE"]),
-  cycle: z.enum(["MONTHLY", "ANNUAL"]),
-  paymentReference: z.string().max(120).optional(),
-});
-
+const hospitalStatusSchema = z.object({ status: z.nativeEnum(HospitalStatus) });
 const planUpdateSchema = z.object({
   monthlyPrice: z.number().positive().optional(),
   annualPrice: z.number().positive().optional(),
@@ -36,101 +27,106 @@ const planUpdateSchema = z.object({
   maxPatients: z.number().int().positive().optional(),
   description: z.string().max(500).optional(),
 });
+const listQuerySchema = z.object({
+  status: z.nativeEnum(HospitalStatus).optional(),
+  tier: z.nativeEnum(SubscriptionTier).optional(),
+  search: z.string().max(120).optional(),
+});
 
 function getParam(param: string | string[] | undefined): string {
   if (Array.isArray(param)) return param[0] || "";
   return param || "";
 }
 
-export function saasRoutes(service: SaasService) {
-  const router = Router();
+const noopMiddleware: RequestHandler = (_request, _response, next) => next();
 
-  // Public: List active subscription plans
+export function saasRoutes(service: SaasService, publicLimiter: RequestHandler = noopMiddleware) {
+  const router = Router();
+  const hospitalAdmin = [UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR] as const;
+
   router.get("/saas/plans", async (_request, response, next) => {
-    try {
-      const data = await service.listPlans();
-      response.json({ success: true, data });
-    } catch (error) { next(error); }
+    try { response.json({ success: true, data: await service.listPlans() }); } catch (error) { next(error); }
   });
 
-  // Public: Register / Onboard a new hospital
-  router.post("/saas/register", async (request, response, next) => {
+  router.post("/saas/register", publicLimiter, async (request, response, next) => {
     try {
       const body = hospitalRegistrationSchema.safeParse(request.body);
-      if (!body.success) {
-        throw new HttpError(400, "Invalid hospital registration data", "VALIDATION_ERROR");
-      }
+      if (!body.success) throw new HttpError(400, "Invalid hospital registration data", "VALIDATION_ERROR");
       const data = await service.registerHospital(body.data);
-      response.status(201).json({
-        success: true,
-        message: "Hospital registered successfully. A 30-day trial subscription has been activated.",
-        data,
-      });
+      response.status(201).json({ success: true, message: "Hospital registered. Trial subscription activated.", data });
     } catch (error) { next(error); }
   });
 
-  // Super Admin: List all hospitals
-  router.get("/saas/hospitals", authenticate, requireRole(UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR), async (request, response, next) => {
+  router.get("/saas/hospitals", authenticate, requireSuperAdmin, async (request, response, next) => {
     try {
-      const query = request.query as Record<string, string | undefined>;
-      const data = await service.listHospitals({
-        status: query.status as any,
-        tier: query.tier as any,
-        search: query.search,
-      });
-      response.json({ success: true, data });
+      const query = listQuerySchema.safeParse(request.query);
+      if (!query.success) throw new HttpError(400, "Invalid hospital filters", "VALIDATION_ERROR");
+      response.json({ success: true, data: await service.listHospitals(query.data, request.actor!) });
     } catch (error) { next(error); }
   });
 
-  // Super Admin: View single hospital details
-  router.get("/saas/hospitals/:id", authenticate, requireRole(UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR), async (request, response, next) => {
-    try {
-      const id = getParam(request.params.id);
-      const data = await service.getHospital(id);
-      response.json({ success: true, data });
-    } catch (error) { next(error); }
+  router.get("/saas/hospitals/:id", authenticate, requireSuperAdmin, async (request, response, next) => {
+    try { response.json({ success: true, data: await service.getHospital(getParam(request.params.id), request.actor!) }); } catch (error) { next(error); }
   });
 
-  // Super Admin: Update hospital status (Activate, Suspend, Cancel)
-  router.patch("/saas/hospitals/:id/status", authenticate, requireRole(UserRole.SUPER_ADMIN), async (request, response, next) => {
+  router.patch("/saas/hospitals/:id/status", authenticate, requireSuperAdmin, async (request, response, next) => {
     try {
-      const id = getParam(request.params.id);
       const body = hospitalStatusSchema.safeParse(request.body);
       if (!body.success) throw new HttpError(400, "Invalid status payload", "VALIDATION_ERROR");
-      const data = await service.updateHospitalStatus(id, body.data.status);
+      const data = await service.updateHospitalStatus(getParam(request.params.id), body.data.status, request.actor!);
       response.json({ success: true, data });
     } catch (error) { next(error); }
   });
 
-  // Super Admin / Hospital Admin: Renew or upgrade subscription
-  router.post("/saas/hospitals/:id/subscriptions", authenticate, requireRole(UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR), async (request, response, next) => {
+  router.get("/saas/subscription", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
+    try { response.json({ success: true, data: await service.getSubscriptionOverview(request.actor!) }); } catch (error) { next(error); }
+  });
+
+  router.get("/saas/subscriptions/history", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
+    try { response.json({ success: true, data: await service.listSubscriptionPayments(request.actor!) }); } catch (error) { next(error); }
+  });
+
+  router.post("/saas/subscriptions/checkout", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
     try {
-      const id = getParam(request.params.id);
-      const body = subscriptionRenewalSchema.safeParse(request.body);
+      const body = subscriptionSchemas.checkout.safeParse(request.body);
       if (!body.success) throw new HttpError(400, "Invalid subscription payload", "VALIDATION_ERROR");
-      const data = await service.renewSubscription(id, body.data);
+      const data = await service.createSubscriptionCheckout(request.actor!, body.data);
       response.status(201).json({ success: true, data });
     } catch (error) { next(error); }
   });
 
-  // Super Admin: Update plan pricing and limits
-  router.patch("/saas/plans/:code", authenticate, requireRole(UserRole.SUPER_ADMIN), async (request, response, next) => {
+  router.get("/saas/subscriptions/verify/:txRef", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
     try {
-      const body = planUpdateSchema.safeParse(request.body);
-      if (!body.success) throw new HttpError(400, "Invalid plan update payload", "VALIDATION_ERROR");
-      const rawCode = getParam(request.params.code);
-      const code = rawCode.toUpperCase() as any;
-      const data = await service.updatePlan(code, body.data);
-      response.json({ success: true, data });
+      const data = await service.verifySubscriptionPayment(request.actor!, getParam(request.params.txRef));
+      response.json({ success: data.success, data });
     } catch (error) { next(error); }
   });
 
-  // Super Admin: Platform overview & analytics
-  router.get("/saas/analytics", authenticate, requireRole(UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR), async (_request, response, next) => {
+  router.post("/saas/subscriptions/cancel", authenticate, requireTenant, requireRole(...hospitalAdmin), async (request, response, next) => {
+    try { response.json({ success: true, data: await service.cancelSubscription(request.actor!) }); } catch (error) { next(error); }
+  });
+
+  router.post("/saas/hospitals/:id/subscriptions", authenticate, requireSuperAdmin, async (request, response, next) => {
     try {
-      const data = await service.getPlatformAnalytics();
-      response.json({ success: true, data });
+      const body = subscriptionSchemas.renewal.safeParse(request.body);
+      if (!body.success) throw new HttpError(400, "Invalid subscription payload", "VALIDATION_ERROR");
+      const data = await service.renewSubscription(getParam(request.params.id), body.data, request.actor!);
+      response.status(201).json({ success: true, data });
     } catch (error) { next(error); }
+  });
+
+  router.patch("/saas/plans/:code", authenticate, requireSuperAdmin, async (request, response, next) => {
+    try {
+      const body = planUpdateSchema.safeParse(request.body);
+      if (!body.success) throw new HttpError(400, "Invalid plan update payload", "VALIDATION_ERROR");
+      const code = getParam(request.params.code).toUpperCase() as SubscriptionTier;
+      if (!Object.values(SubscriptionTier).includes(code)) throw new HttpError(400, "Unknown plan code", "VALIDATION_ERROR");
+      response.json({ success: true, data: await service.updatePlan(code, body.data, request.actor!) });
+    } catch (error) { next(error); }
+  });
+
+  router.get("/saas/analytics", authenticate, requireSuperAdmin, async (_request, response, next) => {
+    try { response.json({ success: true, data: await service.getPlatformAnalytics() }); } catch (error) { next(error); }
   });
 
   return router;

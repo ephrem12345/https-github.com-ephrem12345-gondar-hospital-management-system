@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "./Button";
 import { Modal } from "./Modal";

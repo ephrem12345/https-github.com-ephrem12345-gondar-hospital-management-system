@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Home,
   Grid,
@@ -77,7 +76,6 @@ const ALL_26_DEPARTMENTS: DepartmentInfo[] = [
 ];
 
 export default function LandingPage() {
-  const router = useRouter();
   const { language, setLanguage } = useTranslation();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isDepartmentsModalOpen, setIsDepartmentsModalOpen] = useState(false);

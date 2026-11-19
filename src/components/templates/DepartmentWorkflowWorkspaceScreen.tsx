@@ -13,7 +13,6 @@ import {
   ClipboardList,
   Eye,
   FileCheck2,
-  FilePlus2,
   HeartPulse,
   ImageOff,
   LockKeyhole,
@@ -457,7 +456,6 @@ export function EmergencyDepartmentScreen() {
     { label: "Arrivals today", value: String(cases.length), hint: "Synthetic activity count", icon: <Users className="h-5 w-5" />, tone: "primary" },
   ];
 
-  const statusOptions = emergencyStatuses;
   const sections: DepartmentTab[] = [
     { id: "overview", label: "Dashboard", content: <div className="space-y-5"><TriageLegend /><EmergencyCaseTable cases={cases} /></div> },
     { id: "registration", label: "Emergency registration", content: <WorkflowForm title="Register emergency case" description="Capture arrival and presenting complaint before triage. The patient identifier is masked in queue views." submitLabel="Register case" fields={[

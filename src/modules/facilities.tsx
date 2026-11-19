@@ -1,4 +1,4 @@
-import { BedDouble, Building2, LogIn, LogOut, Syringe, Ambulance, MonitorSmartphone, HeartPulse } from "lucide-react";
+import { BedDouble, Building2, LogIn, LogOut, Syringe, Ambulance, HeartPulse } from "lucide-react";
 import type { ModuleScreen, AnyRow } from "@/modules/types";
 import type { Column } from "@/components/ui/DataTable";
 

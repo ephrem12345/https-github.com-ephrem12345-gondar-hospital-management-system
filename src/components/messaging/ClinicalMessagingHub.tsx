@@ -7,7 +7,6 @@ import {
   Building2,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   Paperclip,
   Send,
   Plus,
@@ -16,15 +15,10 @@ import {
   ShieldAlert,
   ArrowUpRight,
   FileText,
-  UserCheck,
-  Bell,
-  Volume2,
-  VolumeX,
   Settings,
   ChevronRight,
   X,
   User,
-  Activity,
   Flame,
   Download,
   ListTodo,
@@ -80,7 +74,6 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
   const [staffList, setStaffList] = useState<StaffDirectoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
-  const [loading, setLoading] = useState(true);
 
   // User Settings & Presence
   const [settings, setSettings] = useState<UserCommunicationSettings>({
@@ -98,7 +91,7 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
   const [inputContent, setInputContent] = useState("");
   const [inputPriority, setInputPriority] = useState<MessagePriority>("ROUTINE");
   const [inputCategory, setInputCategory] = useState("CLINICAL_INSTRUCTION");
-  const [selectedPatientId, setSelectedPatientId] = useState<string | undefined>(initialPatientId);
+  const [selectedPatientId] = useState<string | undefined>(initialPatientId);
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; type: string; base64: string; size: number } | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -125,7 +118,6 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
   useEffect(() => {
     let active = true;
     const loadInitialData = async () => {
-      setLoading(true);
       try {
         const [convList, taskList, staffDir, userSet] = await Promise.all([
           clinicalMessagingService.listConversations(),
@@ -145,8 +137,6 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
         }
       } catch (err) {
         console.error("Failed to load clinical messaging data", err);
-      } finally {
-        if (active) setLoading(false);
       }
     };
 

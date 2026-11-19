@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
-import { StatCard, type StatCardProps } from "@/components/ui/StatCard";
+import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { BoardScreen } from "@/modules/types";
 import { cn } from "@/lib/utils/cn";
