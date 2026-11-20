@@ -8,7 +8,13 @@
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit --incremental false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "npm --prefix backend run prisma:generate",
+    "db:validate": "npm --prefix backend run prisma:validate",
+    "db:seed": "npm --prefix backend run seed"
+  },
+  "prisma": {
+    "schema": "backend/prisma/schema.prisma"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.5",

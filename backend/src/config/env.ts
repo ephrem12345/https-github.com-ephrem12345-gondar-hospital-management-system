@@ -22,6 +22,7 @@ const envSchema = z.object({
   PAYMENT_GATEWAY: z.enum(["chapa", "simulation"]).default(
     process.env.NODE_ENV === "production" ? "chapa" : "simulation"
   ),
+  CHAPA_MODE: z.enum(["test", "live"]).default("test"),
   CHAPA_SECRET_KEY: z.string().min(1).optional(),
   CHAPA_PUBLIC_KEY: z.string().min(1).optional(),
   CHAPA_WEBHOOK_SECRET: z.string().min(16).optional(),
@@ -66,11 +67,16 @@ const envSchema = z.object({
   if (production && value.COOKIE_SECURE !== true) {
     context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "COOKIE_SECURE must be true in production" });
   }
+  if (value.PAYMENT_GATEWAY === "chapa" && value.CHAPA_MODE === "live" && value.CHAPA_SECRET_KEY?.startsWith("CHASECK_TEST-")) {
+    context.addIssue({ code: "custom", path: ["CHAPA_SECRET_KEY"], message: "Test keys (CHASECK_TEST-*) cannot be used when CHAPA_MODE=live" });
+  }
 });
 
 export const env = envSchema.parse(process.env);
 
 export const simulationPaymentsEnabled = env.PAYMENT_GATEWAY === "simulation" && env.NODE_ENV !== "production";
+
+export const isChapaTestMode = env.CHAPA_MODE === "test";
 
 export const cloudinaryConfigured = Boolean(
   env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET,

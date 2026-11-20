@@ -411,6 +411,12 @@ if (-not $shouldStartFrontend) {
 }
 
 Write-Result "[*] Starting GHMS Frontend on port $Port..." "Cyan"
+if (-not $Production) {
+    $nextCache = Join-Path $projectRoot ".next"
+    if (Test-Path -LiteralPath $nextCache) {
+        Remove-Item -LiteralPath $nextCache -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 $frontScript = if ($Production) { "npm run start" } else { "npm run dev" }
 
 if ($DetachFrontend) {

@@ -46,12 +46,13 @@ Backend variables are strictly server-side and are never exposed to clients or b
 | `COOKIE_SECURE` | **Yes** | `true` | Security | When `true`, session cookies (`ghms_access`, `ghms_refresh`) are restricted strictly to HTTPS connections. |
 | `LOG_LEVEL` | No | `info` | Configuration | Pino logging threshold (`info`, `warn`, `error`). Logs are formatted as structured JSON with PII masking. |
 | `RATE_LIMIT_WINDOW_MS` | No | `900000` | Security | Rate limiting time window in milliseconds (default: 15 minutes = 900,000 ms). |
-| `RATE_LIMIT_MAX_REQUESTS`| No | `100` | Security | Maximum allowed HTTP requests per client IP per window. |
+| `RATE_LIMIT_MAX_REQUESTS`| No | `300` | Security | Maximum allowed HTTP requests per client IP per window. |
 | `AUTH_RATE_LIMIT_MAX` | No | `10` | Security | Stricter limit applied specifically to login and registration endpoints to prevent brute-force attacks. |
 | `JWT_ISSUER` | No | `ghms-api` | Configuration | Issuer claim enforced when verifying access tokens. |
-| `TRUST_PROXY` | No | `false` | Security | Set `true` behind a trusted reverse proxy/Vercel so rate limiting sees the client IP. |
-| `PUBLIC_RATE_LIMIT_MAX` | No | `20` | Security | Stricter limit for public hospital registration and payment webhooks. |
-| `PAYMENT_GATEWAY` | **Yes** | `chapa` | Configuration | Production only accepts `chapa`; `simulation` is rejected outside development/test. |
+| `TRUST_PROXY` | No | `1` | Security | Number of trusted proxy hops behind a reverse proxy/Vercel so rate limiting sees the client IP (`0`–`5`). |
+| `PUBLIC_RATE_LIMIT_MAX` | No | `30` | Security | Stricter limit for public hospital registration and payment webhooks. |
+| `PAYMENT_GATEWAY` | **Yes** | `chapa` in production, `simulation` locally | Configuration | Production only accepts `chapa`; `simulation` is rejected in production. |
+| `CHAPA_MODE` | No | `test` | Configuration | `test` or `live`. `live` rejects `CHASECK_TEST-*` secret keys at startup. |
 | `CHAPA_SECRET_KEY` | **Yes in production** | *None* | **SECRET** | Chapa secret key used for initialize and verify API calls. |
 | `CHAPA_PUBLIC_KEY` | No | *None* | Public | Chapa public key, if required by your integration. |
 | `CHAPA_WEBHOOK_SECRET` | **Yes in production** | *None* | **SECRET** | HMAC-SHA256 secret used to verify raw webhook bodies. |
@@ -61,9 +62,9 @@ Backend variables are strictly server-side and are never exposed to clients or b
 | `CLOUDINARY_API_KEY` | **Yes in production** | *None* | **SECRET** | Cloudinary API key. |
 | `CLOUDINARY_API_SECRET` | **Yes in production** | *None* | **SECRET** | Signs uploads, delivery URLs, deletes, and verifies uploaded assets. |
 | `CRON_SECRET` | **Yes in production** | *None* | **SECRET** | Protects `POST /api/v1/jobs/subscriptions`. |
-| `SUBSCRIPTION_JOB_ENABLED` | No | `false` | Configuration | Enables in-process subscription expiration worker. |
+| `SUBSCRIPTION_JOB_ENABLED` | No | `true` | Configuration | Enables in-process subscription expiration worker. |
 | `SUBSCRIPTION_JOB_INTERVAL_MINUTES` | No | `60` | Configuration | Interval for the expiration worker. |
-| `TRIAL_DAYS` / `TRIAL_GRACE_DAYS` / `SUBSCRIPTION_GRACE_DAYS` | No | `14` / `3` / `7` | Configuration | Trial and past-due grace periods. |
+| `TRIAL_DAYS` / `TRIAL_GRACE_DAYS` / `SUBSCRIPTION_GRACE_DAYS` | No | `30` / `7` / `14` | Configuration | Trial and past-due grace periods. |
 
 ---
 
