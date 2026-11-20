@@ -80,6 +80,21 @@ function Test-HttpProbe {
         Payload = $null
     }
 
+    # Fast and reliable probe using curl.exe if available
+    try {
+        $curlCode = & curl.exe -s -m $TimeoutSec -w "%{http_code}" -o $null $Url 2>$null
+        $stopwatch.Stop()
+        $result.LatencyMs = $stopwatch.ElapsedMilliseconds
+        if ($curlCode -and $curlCode -match '^\d+$') {
+            $result.StatusCode = [int]$curlCode
+            $result.Healthy = ($result.StatusCode -ge 200 -and $result.StatusCode -lt 400)
+            if (-not $result.Healthy) {
+                $result.ErrorMessage = "HTTP $($result.StatusCode)"
+            }
+            return $result
+        }
+    } catch { }
+
     $resp = $null
     $reader = $null
 
