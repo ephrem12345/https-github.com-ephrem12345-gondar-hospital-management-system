@@ -54,7 +54,7 @@ interface DepartmentInfo {
   description: string;
 }
 
-const ALL_26_DEPARTMENTS: DepartmentInfo[] = [
+const HOSPITAL_DEPARTMENTS: DepartmentInfo[] = [
   { name: "Emergency Medicine", nameAm: "ድንገተኛ ሕክምና", roleKey: "doctor", category: "Critical Care", icon: Activity, description: "24/7 Trauma, acute resuscitation & triage" },
   { name: "Internal Medicine", nameAm: "የውስጥ ደዌ ሕክምና", roleKey: "doctor", category: "Clinical", icon: Stethoscope, description: "Chronic care, cardiology, endoscopy & ward" },
   { name: "General Surgery", nameAm: "አጠቃላይ ቀዶ ጥገና", roleKey: "doctor", category: "Surgical", icon: Crosshair, description: "Operating theaters, pre/post-op & surgical suites" },
@@ -122,8 +122,8 @@ export default function LandingPage() {
 
   const categories = ["All", "Clinical", "Surgical", "Diagnostics", "Critical Care", "Pharmaceutical", "Administration", "Specialized"];
   const filteredDepartments = selectedCategory === "All"
-    ? ALL_26_DEPARTMENTS
-    : ALL_26_DEPARTMENTS.filter(d => d.category === selectedCategory);
+    ? HOSPITAL_DEPARTMENTS
+    : HOSPITAL_DEPARTMENTS.filter(d => d.category === selectedCategory);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 antialiased font-sans selection:bg-blue-600 selection:text-white">
@@ -198,7 +198,7 @@ export default function LandingPage() {
                       <p className="text-[11px] text-slate-500">26 Specialized Units</p>
                     </div>
                     <div className="max-h-64 overflow-y-auto py-1">
-                      {ALL_26_DEPARTMENTS.slice(0, 8).map((dept) => (
+                      {HOSPITAL_DEPARTMENTS.slice(0, 8).map((dept) => (
                         <Link
                           key={dept.name}
                           href={`/login?role=${dept.roleKey}`}
@@ -350,22 +350,21 @@ export default function LandingPage() {
                   </button>
                 </div>
               ) : (
-                <div
-                  title="Gondar Staff Access"
-                  className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs"
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 shadow-xs transition"
                 >
-                  AB
-                </div>
+                  <User className="h-3.5 w-3.5" />
+                  <span>Sign In</span>
+                </Link>
               )}
             </div>
           </div>
         </div>
       </header>
 
-      {/* =========================================================================
-          2. HERO BANNER SECTION (Exact Match: Hospital Building, Ambulance, Sky)
-         ========================================================================= */}
-      <section className="relative overflow-hidden bg-slate-900 min-h-[300px] sm:min-h-[360px] lg:min-h-[420px] flex items-center">
+      <main id="main-content">
+        <section className="relative overflow-hidden bg-slate-900 min-h-[300px] sm:min-h-[360px] lg:min-h-[420px] flex items-center">
         {/* Background Hospital Building Image */}
         <div className="absolute inset-0 z-0">
           <Image
@@ -402,7 +401,6 @@ export default function LandingPage() {
                 : "Quality Healthcare • Better Service • Healthier Community"}
             </p>
 
-            {/* Secondary subtitle for test-suite compatibility */}
             <p className="mt-1 text-xs text-slate-200/90">
               Welcome to Gondar Hospital. Select your account type to continue.
             </p>
@@ -801,11 +799,9 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      </main>
 
-      {/* =========================================================================
-          6. DEEP BLUE HOSPITAL FOOTER (Exact Match: Seals, Quick Links, Contacts)
-         ========================================================================= */}
-      <footer id="footer" className="mt-auto bg-[#0a192f] text-slate-300 pt-12 pb-8 border-t border-slate-800">
+      <footer id="footer" className="mt-auto bg-dark-blue text-slate-300 pt-12 pb-8 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 pb-10 border-b border-slate-800">
             {/* Column 1: Hospital Brand */}
@@ -889,39 +885,26 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            {/* Column 4: Follow Us & Language */}
             <div>
               <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">
-                Follow Us
+                Language
               </h4>
-              <div className="flex items-center gap-2.5 mb-6">
-                <span className="h-8 w-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-pointer transition">
-                  f
-                </span>
-                <span className="h-8 w-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center cursor-pointer transition">
-                  ▶
-                </span>
-                <span className="h-8 w-8 rounded-full bg-sky-500 hover:bg-sky-400 text-white flex items-center justify-center cursor-pointer transition">
-                  ✈
-                </span>
-                <span className="h-8 w-8 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center cursor-pointer transition">
-                  in
-                </span>
-              </div>
-
-              {/* Language Selector Box */}
-              <div>
-                <p className="text-[11px] text-slate-400 mb-1.5 font-medium">Language</p>
-                <div className="relative inline-block w-36">
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as Language)}
-                    className="w-full bg-[#112240] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400"
-                  >
-                    <option value="en">🌐 English</option>
-                    <option value="am">🌐 አማርኛ</option>
-                  </select>
-                </div>
+              <p className="text-xs leading-relaxed text-slate-400">
+                Choose your preferred language for the hospital portal.
+              </p>
+              <div className="mt-4 max-w-[12rem]">
+                <label htmlFor="landing-language" className="ghms-label text-slate-400">
+                  Preferred language
+                </label>
+                <select
+                  id="landing-language"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                >
+                  <option value="en">English</option>
+                  <option value="am">አማርኛ</option>
+                </select>
               </div>
             </div>
           </div>
@@ -929,11 +912,7 @@ export default function LandingPage() {
           {/* Bottom Copyright Strip */}
           <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-400">
             <p>© 2026 Gondar Hospital Management System (GHMS). All rights reserved.</p>
-            <p className="flex items-center gap-1">
-              <span>Designed with</span>
-              <Heart className="h-3 w-3 text-red-500 fill-red-500" />
-              <span>for Better Healthcare</span>
-            </p>
+            <p>Committed to quality healthcare in Gondar</p>
           </div>
         </div>
       </footer>

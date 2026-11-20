@@ -671,7 +671,7 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
       {/* ============================================================ */}
       {/* 2. CENTER PANEL: ACTIVE CONVERSATION THREAD                 */}
       {/* ============================================================ */}
-      <main className="flex flex-1 flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <section className="flex flex-1 flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
         {activeConversation ? (
           <>
             {/* Thread Header */}
@@ -967,7 +967,7 @@ export function ClinicalMessagingHub({ initialPatientId }: { initialPatientId?: 
             {isAm ? "ውይይት ይምረጡ ወይም አዲስ ይጀምሩ" : "Select a conversation from the sidebar to view messages."}
           </div>
         )}
-      </main>
+      </section>
 
       {/* ============================================================ */}
       {/* 3. MODALS: NEW CHAT, TASK CONVERSION, ACKNOWLEDGMENT, ESCALATE */}

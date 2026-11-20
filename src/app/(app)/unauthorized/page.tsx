@@ -11,7 +11,7 @@ export default function UnauthorizedPage() {
   const router = useRouter();
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background-light px-4 dark:bg-background-dark">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-background-light px-4 dark:bg-background-dark">
       <Card className="w-full max-w-lg">
         <EmptyState
           icon={UserRoundX}

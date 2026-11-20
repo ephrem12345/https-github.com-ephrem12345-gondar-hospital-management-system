@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 /** System maintenance notice — rendered while the backend is offline. */
 export default function MaintenancePage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background-light px-4 dark:bg-background-dark">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-background-light px-4 dark:bg-background-dark">
       <Card className="w-full max-w-lg">
         <EmptyState
           icon={Wrench}

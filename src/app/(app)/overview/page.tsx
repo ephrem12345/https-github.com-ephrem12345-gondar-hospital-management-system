@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { canAccessRoute, getRoleDashboard } from "@/config/route-permissions";
 import {
   Activity,
   ArrowRight,
@@ -97,6 +99,7 @@ const quickIconMap: Record<string, LucideIcon> = {
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [state, setState] = useState<LoadState>("loading");
   const [data, setData] = useState<DashboardDataBundle | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -107,6 +110,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
+
+    const user = authService.currentUser();
+    if (user && !canAccessRoute("/overview", user.role)) {
+      router.replace(getRoleDashboard(user.role));
+      return;
+    }
+
     setState("loading");
     dashboardService
       .getDashboardData()

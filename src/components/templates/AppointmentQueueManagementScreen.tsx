@@ -323,7 +323,7 @@ export function AppointmentQueueManagementScreen({
 
   if (view === "waiting-room") {
     return (
-      <main className="min-h-[70vh] rounded-2xl bg-slate-950 p-5 text-white sm:p-8">
+      <section aria-label="Public waiting room display" className="min-h-[70vh] rounded-2xl bg-slate-950 p-5 text-white sm:p-8">
         <PageHeader title={title} description="Public waiting-area display. Patient names and identifiers are intentionally hidden." />
         <div className="grid gap-5 lg:grid-cols-3">
           {departments.slice(0, 3).map((department, index) => {
@@ -351,7 +351,7 @@ export function AppointmentQueueManagementScreen({
             );
           })}
         </div>
-      </main>
+      </section>
     );
   }
 

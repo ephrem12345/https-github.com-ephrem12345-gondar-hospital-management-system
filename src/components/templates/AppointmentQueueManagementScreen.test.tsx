@@ -168,7 +168,7 @@ describe("AppointmentQueueManagementScreen", () => {
 
   it("keeps personal identifiers off the public waiting-room display", () => {
     render(<AppointmentQueueManagementScreen title="Waiting Room Display" view="waiting-room" />);
-    const content = screen.getByRole("main").textContent ?? "";
+    const content = screen.getByRole("region", { name: "Public waiting room display" }).textContent ?? "";
 
     expect(content).toContain("Now serving");
     expect(content).toContain("Waiting numbers");

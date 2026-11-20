@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
     "dev": "next dev -p 3000",
     "dev:safe": "powershell -ExecutionPolicy Bypass -File ./start-ghms.ps1",
     "build": "next build",

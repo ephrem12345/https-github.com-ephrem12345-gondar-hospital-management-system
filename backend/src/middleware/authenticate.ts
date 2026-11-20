@@ -59,10 +59,54 @@ export async function authenticate(request: Request, _response: Response, next: 
   }
 }
 
-const rolePermissions: Record<UserRole, ReadonlySet<string>> = {
-  SUPER_ADMIN: new Set(["*"]),
-  ADMINISTRATOR: new Set(["*"]),
-  PATIENT: new Set(["appointments.create", "appointments.read.own", "appointments.update.own", "queue.read.public"]),
+export const rolePermissions: Record<UserRole, ReadonlySet<string>> = {
+  SUPER_ADMIN: new Set([
+    "platform.manage",
+    "tenants.read",
+    "tenants.manage",
+    "subscriptions.read",
+    "subscriptions.manage",
+    "saas.plans.manage",
+    "platform.settings.manage",
+    "users.read",
+    "departments.read",
+    "clinical.messages.read",
+    "clinical.messages.send",
+    "clinical.messages.reply",
+  ]),
+  ADMINISTRATOR: new Set([
+    "users.read",
+    "users.manage",
+    "roles.read",
+    "roles.manage",
+    "permissions.read",
+    "permissions.manage",
+    "departments.read",
+    "departments.manage",
+    "doctors.read",
+    "doctors.manage",
+    "audit_logs.read",
+    "hospital.settings.read",
+    "hospital.settings.manage",
+    "reports.read",
+    "reports.operational.read",
+    "saas.subscription.manage",
+    "media.manage",
+    "clinical.messages.read",
+    "clinical.messages.send",
+    "clinical.messages.reply",
+  ]),
+  PATIENT: new Set([
+    "appointments.create",
+    "appointments.read.own",
+    "appointments.update.own",
+    "queue.read.public",
+    "portal.profile.read",
+    "portal.profile.update",
+    "portal.records.read",
+    "portal.billing.read",
+    "payments.pay.own",
+  ]),
   DOCTOR: new Set([
     "appointments.read.department",
     "appointments.update.department",
@@ -109,8 +153,9 @@ const rolePermissions: Record<UserRole, ReadonlySet<string>> = {
     "emergency.triage",
     "emergency.treatment",
     "departments.read",
-    "departments.manage",
     "laboratory.orders.read",
+    "inpatient.read",
+    "inpatient.vitals.write",
   ]),
   RECEPTIONIST: new Set([
     "appointments.read.all",
@@ -268,4 +313,26 @@ export function requireSuperAdmin(request: Request, _response: Response, next: N
     return next(new HttpError(403, "Platform super administrator authorization required", "FORBIDDEN"));
   }
   return next();
+}
+
+/** Explicit alias for authenticate middleware for clear intent */
+export const requireAuth = authenticate;
+
+/**
+ * Enforces department-level access control.
+ * Admins and Super Admins bypass department boundaries for executive oversight.
+ */
+export function requireDepartmentAccess(...departments: string[]) {
+  return (request: Request, _response: Response, next: NextFunction) => {
+    const actor = request.actor;
+    if (!actor) return next(new HttpError(401, "Authentication is required", "UNAUTHENTICATED"));
+    if (actor.role === UserRole.SUPER_ADMIN || actor.role === UserRole.ADMINISTRATOR) {
+      return next();
+    }
+    const actorDept = actor.department?.toLowerCase();
+    if (actorDept && departments.some((d) => d.toLowerCase() === actorDept)) {
+      return next();
+    }
+    return next(new HttpError(403, "Access restricted to department personnel", "FORBIDDEN"));
+  };
 }

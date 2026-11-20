@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { navigation } from "@/data/navigation";
+import { authService } from "@/services";
+import { canAccessRoute, getRoleDashboard } from "@/config/route-permissions";
 import { cn } from "@/lib/utils/cn";
 import { useTranslation } from "@/lib/i18n/I18nProvider";
 
@@ -18,9 +20,9 @@ export interface SidebarProps {
   activeHref: string;
 }
 
-function Logo({ collapsed }: { collapsed: boolean }) {
+function Logo({ collapsed, defaultHref }: { collapsed: boolean; defaultHref: string }) {
   return (
-    <Link href="/overview" className="flex items-center gap-3 px-3 py-1" aria-label="GHMS home">
+    <Link href={defaultHref} className="flex items-center gap-3 px-3 py-1" aria-label="GHMS home">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-white shadow-sm">
         {/* Cross mark — hospital identity */}
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
@@ -51,18 +53,37 @@ export function Sidebar({
 }: SidebarProps) {
   const { language, t } = useTranslation();
   const pick = (en: string, am: string) => (language === "am" ? am : en);
+  const [currentUser, setCurrentUser] = useState(() => authService.currentUser());
+
+  useEffect(() => {
+    setCurrentUser(authService.currentUser());
+  }, []);
+
+  const homeHref = useMemo(() => getRoleDashboard(currentUser?.role), [currentUser]);
+
+  // Filter navigation by authenticated user's department and role permissions
+  const filteredNav = useMemo(() => {
+    return navigation
+      .map((group) => {
+        const allowedItems = group.items.filter((item) =>
+          canAccessRoute(item.href, currentUser?.role)
+        );
+        return { ...group, items: allowedItems };
+      })
+      .filter((group) => group.items.length > 0);
+  }, [currentUser]);
 
   // Groups containing the active route start expanded.
-  const initialOpen = navigation.map((group) =>
+  const initialOpen = filteredNav.map((group) =>
     group.items.some((item) => item.href === activeHref),
   );
   const [openGroups, setOpenGroups] = useState<boolean[]>(initialOpen);
 
   useEffect(() => {
     setOpenGroups(
-      navigation.map((group) => group.items.some((item) => item.href === activeHref)),
+      filteredNav.map((group) => group.items.some((item) => item.href === activeHref)),
     );
-  }, [activeHref]);
+  }, [activeHref, filteredNav]);
 
   const toggleGroup = (index: number) => {
     setOpenGroups((prev) =>
@@ -71,6 +92,7 @@ export function Sidebar({
   };
 
   const isCollapsed = mobile ? false : collapsed;
+  const canRegisterPatients = canAccessRoute("/patient-registration", currentUser?.role);
 
   return (
     <aside
@@ -87,7 +109,7 @@ export function Sidebar({
           isCollapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >
-        <Logo collapsed={isCollapsed} />
+        <Logo collapsed={isCollapsed} defaultHref={homeHref} />
         {mobile ? (
           <button
             type="button"
@@ -100,8 +122,8 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {/* Quick action */}
-      {!isCollapsed ? (
+      {/* Quick action - Only visible for roles permitted to register patients */}
+      {!isCollapsed && canRegisterPatients ? (
         <div className="px-4 pt-4">
           <Link
             href="/patient-registration"
@@ -120,7 +142,7 @@ export function Sidebar({
         )}
         aria-label="Main navigation"
       >
-        {navigation.map((group, index) => {
+        {filteredNav.map((group, index) => {
           const isOpen = isCollapsed ? false : openGroups[index];
           const groupActive = group.items.some((item) => item.href === activeHref);
           return (
@@ -179,16 +201,7 @@ export function Sidebar({
                               : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200",
                           )}
                         >
-                          {active ? (
-                            <span
-                              className="absolute left-3 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-primary-600"
-                              aria-hidden
-                            />
-                          ) : null}
-                          <item.icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                          <span className="ml-3 truncate">
-                            {pick(item.label, item.labelAm)}
-                          </span>
+                          <span className="truncate">{pick(item.label, item.labelAm)}</span>
                         </Link>
                       </li>
                     );
@@ -200,33 +213,25 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Footer / collapse control */}
-      <div
-        className={cn(
-          "shrink-0 border-t border-slate-100 dark:border-slate-800",
-          isCollapsed ? "flex justify-center py-3" : "flex items-center justify-between px-4 py-3",
-        )}
-      >
-        {!isCollapsed ? (
-          <span className="text-[11px] text-slate-400 dark:text-slate-600">
-            GHMS v0.1.0
-          </span>
-        ) : null}
-        {onCollapse ? (
+      {/* Collapse toggle (desktop only) */}
+      {!mobile && onCollapse ? (
+        <div className="border-t border-slate-100 p-2 dark:border-slate-800">
           <button
             type="button"
-            onClick={() => onCollapse((value) => !value)}
-            aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            onClick={() => onCollapse(!collapsed)}
+            aria-label={
+              collapsed ? t("sidebar.expandRail") : t("sidebar.collapseRail")
+            }
+            className="flex w-full items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
           >
-            {isCollapsed ? (
+            {collapsed ? (
               <PanelLeftOpen className="h-5 w-5" aria-hidden />
             ) : (
               <PanelLeftClose className="h-5 w-5" aria-hidden />
             )}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

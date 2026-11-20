@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, Settings, UserRound } from "lucide-react";
-import { mockCurrentUser } from "@/data/mock";
+import { authService } from "@/services";
+import type { CurrentUser } from "@/types";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { cn } from "@/lib/utils/cn";
 import { useTranslation } from "@/lib/i18n/I18nProvider";
@@ -17,11 +18,23 @@ export function ProfileMenu({ onLogout }: ProfileMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [user, setUser] = useState<CurrentUser | null>(() => authService.currentUser());
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setUser(authService.currentUser());
+  }, []);
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
-  const user = mockCurrentUser;
+  const displayUser = user ?? {
+    id: "anonymous",
+    name: "Hospital Staff",
+    role: "Staff",
+    department: "Gondar Hospital",
+    email: "staff@gondar-hospital.et",
+    initials: "GH",
+  };
 
   const handleLogout = async () => {
     setOpen(false);
@@ -43,14 +56,14 @@ export function ProfileMenu({ onLogout }: ProfileMenuProps) {
         className="flex items-center gap-2 rounded-lg p-1.5 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 text-xs font-semibold text-white">
-          {user.initials}
+          {displayUser.initials}
         </span>
         <span className="hidden min-w-0 text-left lg:block">
           <span className="block truncate text-sm font-medium leading-tight text-slate-700 dark:text-slate-200">
-            {user.name}
+            {displayUser.name}
           </span>
           <span className="block truncate text-[11px] leading-tight text-slate-400">
-            {user.role}
+            {displayUser.role}
           </span>
         </span>
         <ChevronDown
@@ -66,11 +79,11 @@ export function ProfileMenu({ onLogout }: ProfileMenuProps) {
         <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-slate-200 bg-surface-light shadow-dropdown animate-fade-in dark:border-slate-800 dark:bg-surface-dark">
           <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
             <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
-              {user.name}
+              {displayUser.name}
             </p>
-            <p className="truncate text-xs text-slate-400">{user.email}</p>
+            <p className="truncate text-xs text-slate-400">{displayUser.email}</p>
             <p className="mt-1 inline-flex rounded-full bg-light-blue px-2 py-0.5 text-[11px] font-medium text-primary-700 dark:bg-primary/15 dark:text-primary-300">
-              {user.department} · {user.role}
+              {displayUser.department} · {displayUser.role}
             </p>
           </div>
           <ul className="py-1.5">

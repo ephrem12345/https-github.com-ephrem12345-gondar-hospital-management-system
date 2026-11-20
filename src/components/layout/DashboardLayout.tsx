@@ -97,7 +97,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           }
         />
 
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <main id="main-content" className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-7xl">
             {logoutError ? <p className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{logoutError}</p> : null}
             {children}
@@ -106,8 +106,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
         <footer className="px-4 pb-6 pt-2 sm:px-6 lg:px-8">
           <p className="mx-auto max-w-7xl text-xs text-slate-400 dark:text-slate-600">
-            Gondar Hospital Management System · UI foundation · demonstration
-            data only
+            Gondar Hospital Management System · Authorized staff access only
           </p>
         </footer>
       </div>

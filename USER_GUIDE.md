@@ -10,9 +10,18 @@
 
 ## 1. System Access & Language Selection
 
+### 1.0 Starting the System Locally
+1. In the project folder, double-click **`start-ghms.bat`** (or run `npm run dev:safe` in PowerShell).
+2. Wait until the launcher confirms the API and web app are healthy.
+3. Open **`http://localhost:3000`** in Chrome, Firefox, Safari, or Edge.
+4. To stop everything safely, double-click **`stop-ghms.bat`**.
+
 ### 1.1 Navigating to the System
-- **Hospital Intranet / Web:** Open `https://gondar-hospital.et` in Chrome, Firefox, Safari, or Edge.
-- **Language Switcher:** Click the language selector in the top-right header to toggle between **English** and **አማርኛ (Amharic)**. All terminology, button actions, and system messages will update immediately.
+- **Local development:** `http://localhost:3000`
+- **Backend API:** `http://localhost:4000/api/v1`
+- **API documentation:** `http://localhost:4000/api/docs`
+- In a hosted deployment, use the HTTPS domain supplied by your administrator.
+- **Language Switcher:** Use the language selector in the public-site header or the dashboard top bar to switch between **English** and **አማርኛ (Amharic)**. Labels update immediately.
 
 ### 1.2 Role Selection Landing Page
 The GHMS landing page features dedicated login cards for each hospital role:
@@ -25,6 +34,15 @@ The GHMS landing page features dedicated login cards for each hospital role:
 7. **Patient Portal Login**
 
 Click your designated card to be routed directly to the tailored authentication screen.
+
+### 1.3 Understanding the Staff Dashboard
+After signing in, the dashboard has four consistent areas:
+1. **Left sidebar:** grouped navigation (Dashboard, Patient Services, Clinical Services, Departments, Diagnostics, Pharmacy, Facilities, Finance, HR, Management, Administration). Use the arrow beside a group to expand or collapse it. The top-left button collapses the sidebar to icons.
+2. **Top bar:** page title, breadcrumbs, global search, language switcher, theme switcher, clinical messages, notifications, and profile menu.
+3. **Main content:** page heading, actions, tables, and forms. Always read the page description before entering data.
+4. **Footer:** system identification and authorized-access notice.
+
+Use **Global Search** to jump between modules. Breadcrumbs always show where you are: *Home › Group › Page*.
 
 ---
 
@@ -107,7 +125,7 @@ Click your designated card to be routed directly to the tailored authentication 
 ## 7. Patient Portal Workflows
 
 Patients can access their health records from home or mobile devices:
-1. **Self-Service Registration:** Click **Register** on the landing page, enter personal details and create a password.
+1. **Self-Service Registration:** Choose **Patient Login**, then click **Create a patient account** on the sign-in page. Enter personal details and create a password.
 2. **Dashboard Overview:** Displays upcoming appointments, active prescriptions, and recent lab results.
 3. **Appointment Scheduling:** Select specialty clinic, choose an available date and time, and submit request.
 4. **Accessing Medical Records:** View finalized diagnoses and verified laboratory reports with normal reference ranges.

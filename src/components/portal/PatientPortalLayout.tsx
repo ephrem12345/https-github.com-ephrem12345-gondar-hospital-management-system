@@ -95,7 +95,7 @@ export function PatientPortalLayout({ children }: { children: ReactNode }) {
           })}
         </div>
       </nav>
-      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <main id="main-content" className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       <footer className="border-t border-slate-200 px-4 py-5 text-center text-xs text-slate-500 dark:border-slate-800">
         For emergencies, contact local emergency services or visit the hospital directly.
       </footer>

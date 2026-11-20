@@ -180,6 +180,7 @@ export interface AuthService {
   ): Promise<CurrentUser>;
   logout(): Promise<void>;
   currentUser(): CurrentUser | null;
+  checkSession(): Promise<CurrentUser | null>;
   isAuthenticated(): boolean;
 }
 
@@ -188,7 +189,23 @@ const MOCK_REMEMBER_KEY = "ghms-remember";
 
 class BackendAuthService implements AuthService {
   private storeUser(user: CurrentUser) {
-    window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+    }
+  }
+
+  async checkSession(): Promise<CurrentUser | null> {
+    if (typeof window === "undefined") return null;
+    try {
+      const user = await apiClient.get<CurrentUser>("/auth/me", { skipCache: true });
+      this.storeUser(user);
+      return user;
+    } catch {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(USER_KEY);
+      }
+      return null;
+    }
   }
 
   async login(identifier: string, password: string, remember = false, expectedRoles?: string[]) {
@@ -229,7 +246,10 @@ class BackendAuthService implements AuthService {
     try {
       await apiClient.post("/auth/logout");
     } finally {
-      window.localStorage.removeItem(USER_KEY);
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(USER_KEY);
+        window.sessionStorage.clear();
+      }
     }
   }
 

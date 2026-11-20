@@ -14,6 +14,9 @@ import type { FacilityWorkflowSection, PharmacyWorkflowSection } from "@/service
 import { resolveNav } from "@/data/navigation";
 import { screenRegistry, ROLES, permissionRows } from "@/modules/registry";
 import { useTranslation } from "@/lib/i18n/I18nProvider";
+import { authService } from "@/services";
+import { canAccessRoute } from "@/config/route-permissions";
+import AccessDeniedPage from "@/app/(app)/access-denied/page";
 
 const PageLoader = () => <LoadingState variant="page" />;
 
@@ -110,6 +113,11 @@ export default function ModuleScreenPage() {
   const pathname = usePathname();
   const { t } = useTranslation();
   const nav = resolveNav(pathname);
+
+  const currentUser = authService.currentUser();
+  if (currentUser && !canAccessRoute(pathname, currentUser.role)) {
+    return <AccessDeniedPage />;
+  }
 
   if (pathname === "/emergency") {
     return <DepartmentWorkflowWorkspaceScreen departmentId="emergency" />;

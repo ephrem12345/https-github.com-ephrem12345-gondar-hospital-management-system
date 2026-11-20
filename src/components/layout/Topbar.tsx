@@ -58,9 +58,9 @@ export function Topbar({
         </button>
         <div className="min-w-0">
           {/* Suppress SSR mismatch: language/theme resolve client-side. */}
-          <h1 className="truncate text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
+          <p className="truncate text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
             {displayTitle}
-          </h1>
+          </p>
           {breadcrumbs ? (
             <div className="hidden sm:block">
               {breadcrumbs}

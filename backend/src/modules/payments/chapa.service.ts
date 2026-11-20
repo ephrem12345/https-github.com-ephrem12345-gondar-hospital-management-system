@@ -85,6 +85,15 @@ export class ChapaPaymentService {
     if (actor.role !== UserRole.SUPER_ADMIN && !actor.hospitalId) {
       throw new HttpError(403, "No tenant association found for this user", "TENANT_REQUIRED");
     }
+    const allowedPaymentRoles: UserRole[] = [
+      UserRole.FINANCE_OFFICER,
+      UserRole.ADMINISTRATOR,
+      UserRole.SUPER_ADMIN,
+      UserRole.PATIENT,
+    ];
+    if (!allowedPaymentRoles.includes(actor.role)) {
+      throw new HttpError(403, "Only finance officers, administrators, or patients paying their own invoice are authorized to access invoice payments", "FORBIDDEN");
+    }
     if (actor.hospitalId && invoice.hospitalId && actor.hospitalId !== invoice.hospitalId) {
       throw new HttpError(403, "Access denied to cross-hospital invoice", "FORBIDDEN");
     }

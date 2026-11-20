@@ -34,7 +34,7 @@ export function AuthShell({
   children: ReactNode;
 }) {
   return (
-    <main className="flex min-h-screen bg-background-light dark:bg-background-dark">
+    <main id="main-content" className="flex min-h-screen bg-background-light dark:bg-background-dark">
       {/* Brand panel */}
       <aside className="relative hidden w-[44%] max-w-2xl flex-col justify-between overflow-hidden bg-gradient-to-br from-dark-blue via-primary-800 to-primary-600 p-10 text-white lg:flex">
         <div aria-hidden className="pointer-events-none absolute inset-0">

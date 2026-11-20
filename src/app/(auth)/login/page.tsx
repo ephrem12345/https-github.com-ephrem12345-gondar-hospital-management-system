@@ -231,7 +231,7 @@ function LoginForm() {
 
         <Button type="submit" className="w-full" loading={isSubmitting} disabled={isSubmitting}>
           {isSubmitting
-            ? "Verifying & Signing inâ€¦"
+            ? "Verifying & signing in…"
             : selectedRole
             ? `Sign in as ${selectedRole.shortRole}`
             : "Sign in"}
