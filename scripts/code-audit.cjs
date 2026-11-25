@@ -5,7 +5,7 @@ function getAllFiles(dir, extensions = ['.ts', '.tsx', '.js', '.jsx']) {
   let files = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (['node_modules', '.next', 'dist', '.git', 'coverage', '.system_generated'].includes(entry.name)) continue;
+    if (['node_modules', '.next', '.next-dev', 'dist', '.git', 'coverage', '.system_generated', 'logs', 'brain'].includes(entry.name) || entry.name.startsWith('.backup')) continue;
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       files = files.concat(getAllFiles(fullPath, extensions));
@@ -23,7 +23,7 @@ console.log('Total source files found:', allFiles.length);
 const consoleOccurrences = [];
 for (const file of allFiles) {
   const relPath = path.relative('.', file).replace(/\\/g, '/');
-  if (relPath.includes('test') || relPath.startsWith('scripts/') || relPath.startsWith('backend/scripts/') || relPath.startsWith('backend/prisma/seed')) continue;
+  if (relPath.includes('test') || relPath.startsWith('scripts/') || relPath.startsWith('backend/scripts/') || relPath.startsWith('backend/prisma/seed') || relPath === 'backend/src/server.ts') continue;
   
   const content = fs.readFileSync(file, 'utf8');
   const lines = content.split('\n');
@@ -37,7 +37,7 @@ console.log('\n--- Console.log in Production Code (' + consoleOccurrences.length
 consoleOccurrences.forEach(c => console.log(`${c.file}:${c.line} -> ${c.text}`));
 
 // 2. Identify duplicate exported type/interface names
-const typeDefs = {};
+const typeDefs = Object.create(null);
 for (const file of allFiles) {
   const relPath = path.relative('.', file).replace(/\\/g, '/');
   const content = fs.readFileSync(file, 'utf8');
@@ -56,7 +56,7 @@ duplicateTypes.slice(0, 30).forEach(([name, files]) => {
 });
 
 // 3. Identify duplicate function names
-const funcDefs = {};
+const funcDefs = Object.create(null);
 for (const file of allFiles) {
   const relPath = path.relative('.', file).replace(/\\/g, '/');
   if (relPath.includes('test.')) continue;

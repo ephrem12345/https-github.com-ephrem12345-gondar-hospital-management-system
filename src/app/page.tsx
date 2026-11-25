@@ -90,10 +90,18 @@ export default function LandingPage() {
   const langMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && authService.isAuthenticated()) {
-      const user = authService.currentUser();
-      setCurrentUser(user);
+    let isMounted = true;
+    async function checkAuth() {
+      if (typeof window === "undefined") return;
+      const user = await authService.checkSession();
+      if (isMounted) {
+        setCurrentUser(user);
+      }
     }
+    void checkAuth();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Handle outside clicks for header dropdowns

@@ -1,12 +1,8 @@
 const path = require("path");
 const { PrismaClient } = require(path.join(__dirname, "../backend/node_modules/@prisma/client"));
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: "mysql://ghms_user:ghms-local-dev@localhost:3306/ghms?connection_limit=20&pool_timeout=10",
-    },
-  },
-});
+// DATABASE_URL is read from the backend/.env file or the environment.
+// Never hardcode database credentials here.
+const prisma = new PrismaClient();
 
 async function main() {
   const users = await prisma.user.findMany({

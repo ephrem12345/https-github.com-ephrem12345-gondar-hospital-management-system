@@ -47,46 +47,62 @@ export function middleware(request: NextRequest) {
   const accessCookie = request.cookies.get("ghms_access")?.value;
   const refreshCookie = request.cookies.get("ghms_refresh")?.value;
 
-  // If no session tokens exist, immediately redirect to login
-  if (!accessCookie && !refreshCookie) {
+  // If no access token exists, we must redirect to login.
+  // A refresh-only cookie is NOT sufficient to serve protected pages at the
+  // edge — the access token is the credential we can inspect here.
+  // The client will silently refresh the token when it loads; until then
+  // the user is not authenticated from the middleware's perspective.
+  if (!accessCookie) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    if (refreshCookie) {
+      // Refresh token exists but access token is missing/expired — treat as
+      // session expired so the client can attempt a silent refresh on the
+      // login page before prompting for credentials again.
+      loginUrl.searchParams.set("session_expired", "1");
+    }
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // 4. Inspect access token claims (base64url decode — no signature verification
+  //    at Edge; cryptographic verification happens at the backend authenticate
+  //    middleware for every protected API call).
+  const claims = parseJwtPayload(accessCookie);
+
+  // If the token cannot be decoded or has no recognizable claims, treat as
+  // unauthenticated — do NOT fall through to NextResponse.next().
+  if (!claims || !claims.sub || !claims.role) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 4. Inspect access claims if token is available
-  if (accessCookie) {
-    const claims = parseJwtPayload(accessCookie);
-    const now = Date.now();
+  const now = Date.now();
+  const isExpired = claims.exp ? claims.exp * 1000 < now : false;
 
-    // Check expiration if exp claim is present
-    const isExpired = claims?.exp ? claims.exp * 1000 < now : false;
+  // Strict Fail-Closed: An expired access token must never grant access to protected pages
+  if (isExpired) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    loginUrl.searchParams.set("session_expired", "1");
+    return NextResponse.redirect(loginUrl);
+  }
 
-    if (isExpired && !refreshCookie) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
-      loginUrl.searchParams.set("session_expired", "1");
-      return NextResponse.redirect(loginUrl);
-    }
+  const userRole = claims.role;
 
-    if (claims?.role) {
-      const userRole = claims.role;
+  // 5. Strict Patient Isolation: Patients cannot access staff workspaces
+  if (userRole.toUpperCase() === "PATIENT" && !pathname.startsWith("/patient-portal") && pathname !== "/profile") {
+    return NextResponse.redirect(new URL("/patient-portal", request.url));
+  }
 
-      // Strict Patient Isolation: Patients cannot access staff workspaces
-      if (userRole.toUpperCase() === "PATIENT" && !pathname.startsWith("/patient-portal") && pathname !== "/profile") {
-        return NextResponse.redirect(new URL("/patient-portal", request.url));
-      }
+  // 6. Staff Isolation: Staff cannot access patient portal
+  if (userRole.toUpperCase() !== "PATIENT" && pathname.startsWith("/patient-portal")) {
+    return NextResponse.redirect(new URL("/access-denied", request.url));
+  }
 
-      // Staff Isolation: Staff cannot access patient portal
-      if (userRole.toUpperCase() !== "PATIENT" && pathname.startsWith("/patient-portal")) {
-        return NextResponse.redirect(new URL("/access-denied", request.url));
-      }
-
-      // Department & Role authorization check
-      if (!canAccessRoute(pathname, userRole)) {
-        return NextResponse.redirect(new URL("/access-denied", request.url));
-      }
-    }
+  // 7. Department & Role authorization check
+  if (!canAccessRoute(pathname, userRole)) {
+    return NextResponse.redirect(new URL("/access-denied", request.url));
   }
 
   return NextResponse.next();

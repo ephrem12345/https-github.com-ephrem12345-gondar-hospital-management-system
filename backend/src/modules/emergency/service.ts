@@ -400,7 +400,12 @@ export class EmergencyService {
   }
 
   private assertDepartment(department: string, actor: Actor) {
-    if (actor.role !== "ADMINISTRATOR" && actor.role !== "RECEPTIONIST" && actor.department?.toLowerCase() !== department.toLowerCase()) {
+    if (
+      actor.role !== "ADMINISTRATOR" &&
+      actor.role !== "SUPER_ADMIN" &&
+      actor.role !== "RECEPTIONIST" &&
+      actor.department?.toLowerCase() !== department.toLowerCase()
+    ) {
       throw new HttpError(403, "You are not authorized for this department", "FORBIDDEN");
     }
   }

@@ -5,6 +5,9 @@ node_modules/
 
 # next.js
 /.next/
+/.next-dev/
+.next/
+.next-dev/
 /out/
 /backend/dist/
 dist/
@@ -27,3 +30,25 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# GHMS local logs and backups
+/logs/
+/.backup_security_remediation_*/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+
+# Database backups and dumps
+*.sql
+*.sql.gz
+*.dump
+*.bak
+
+# Private uploads
+
+/.backup_ghms_stabilization_20261124/

@@ -51,6 +51,15 @@ export function paymentRoutes(service: ChapaPaymentService) {
     } catch (error) { next(error); }
   });
 
+  router.get("/payments/history", authenticate, requireTenant, async (request, response, next) => {
+    try {
+      const limit = typeof request.query.limit === "string" ? parseInt(request.query.limit, 10) : undefined;
+      const offset = typeof request.query.offset === "string" ? parseInt(request.query.offset, 10) : undefined;
+      const data = await service.listPaymentHistory(request.actor!, { limit, offset });
+      response.json({ success: true, data });
+    } catch (error) { next(error); }
+  });
+
   router.get("/payments/receipt/:paymentId", authenticate, requireTenant, async (request, response, next) => {
     try {
       const paymentId = getParam(request.params.paymentId);

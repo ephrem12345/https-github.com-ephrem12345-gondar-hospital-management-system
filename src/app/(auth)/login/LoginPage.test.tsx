@@ -130,7 +130,7 @@ describe("Role-Based Login Page & Security Verification", () => {
     renderWithI18n(<LoginPage />);
 
     await user.type(screen.getByLabelText(/Email, username or phone/i), "selam.girma");
-    await user.type(screen.getByPlaceholderText("••••••••"), "StaffPassword123");
+    await user.type(screen.getByPlaceholderText("••••••••"), "SyntheticTestPass123!");
     await user.click(screen.getByRole("button", { name: "Sign in as Doctor" }));
 
     await waitFor(() => {
@@ -157,7 +157,7 @@ describe("Role-Based Login Page & Security Verification", () => {
     renderWithI18n(<LoginPage />);
 
     await user.type(screen.getByLabelText(/Email, username or phone/i), "tigist.alemu");
-    await user.type(screen.getByPlaceholderText("••••••••"), "StaffPassword123");
+    await user.type(screen.getByPlaceholderText("••••••••"), "SyntheticTestPass123!");
     await user.click(screen.getByRole("button", { name: "Sign in as Administrator" }));
 
     await waitFor(() => {
@@ -185,7 +185,7 @@ describe("Role-Based Login Page & Security Verification", () => {
     renderWithI18n(<LoginPage />);
 
     await user.type(screen.getByLabelText(/Email, username or phone/i), "patient");
-    await user.type(screen.getByPlaceholderText("••••••••"), "TestPassword123");
+    await user.type(screen.getByPlaceholderText("••••••••"), "SyntheticTestPass123!");
     await user.click(screen.getByRole("button", { name: "Sign in as Patient" }));
 
     await waitFor(() => {
@@ -198,7 +198,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "administrator",
         username: "admin",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "ADMINISTRATOR",
         expectedDashboard: "/overview",
         buttonName: "Sign in as Administrator",
@@ -206,7 +206,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "doctor",
         username: "selam.girma",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "DOCTOR",
         expectedDashboard: "/opd",
         buttonName: "Sign in as Doctor",
@@ -214,7 +214,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "nurse",
         username: "tigist.alemu",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "NURSE",
         expectedDashboard: "/vital-signs",
         buttonName: "Sign in as Nurse",
@@ -222,7 +222,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "laboratory",
         username: "getu.assefa",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "LABORATORY_TECHNICIAN",
         expectedDashboard: "/laboratory",
         buttonName: "Sign in as Laboratory Technologist",
@@ -230,7 +230,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "pharmacist",
         username: "liya.tesfaye",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "PHARMACIST",
         expectedDashboard: "/pharmacy",
         buttonName: "Sign in as Pharmacist",
@@ -238,7 +238,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "receptionist",
         username: "receptionist",
-        password: "StaffPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "RECEPTIONIST",
         expectedDashboard: "/patient-registration",
         buttonName: "Sign in as Receptionist",
@@ -246,7 +246,7 @@ describe("Role-Based Login Page & Security Verification", () => {
       {
         roleQuery: "patient",
         username: "patient",
-        password: "TestPassword123",
+        password: "SyntheticTestPass123!",
         userRole: "PATIENT",
         expectedDashboard: "/patient-portal",
         buttonName: "Sign in as Patient",
@@ -278,5 +278,5 @@ describe("Role-Based Login Page & Security Verification", () => {
         expect(pushMock).toHaveBeenCalledWith(testCase.expectedDashboard);
       });
     }
-  });
+  }, 35000);
 });

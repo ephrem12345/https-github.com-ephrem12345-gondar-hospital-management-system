@@ -30,15 +30,20 @@ export async function authenticate(request: Request, _response: Response, next: 
     }
 
     let role = claims.role as UserRole;
+    let authoritativeDepartment = typeof claims.department === "string" ? claims.department : undefined;
+
     if (authDatabase) {
       const user = await authDatabase.user.findUnique({
         where: { id: claims.sub },
-        select: { status: true, hospitalId: true, role: true },
+        select: { status: true, hospitalId: true, role: true, department: true },
       });
       if (!user || user.status !== "ACTIVE") {
         return next(new HttpError(403, "This account is not active. Contact the hospital registration desk.", "ACCOUNT_NOT_ACTIVE"));
       }
       role = user.role;
+      if (user.department) {
+        authoritativeDepartment = user.department;
+      }
       if (user.hospitalId !== claims.hospitalId) {
         throw new HttpError(401, "Token tenant does not match the active account", "TENANT_MISMATCH");
       }
@@ -49,7 +54,7 @@ export async function authenticate(request: Request, _response: Response, next: 
       userId: claims.sub,
       role,
       ...(typeof claims.patientId === "string" ? { patientId: claims.patientId } : {}),
-      ...(typeof claims.department === "string" ? { department: claims.department } : {}),
+      ...(authoritativeDepartment ? { department: authoritativeDepartment } : {}),
       ...(typeof claims.hospitalId === "string" ? { hospitalId: claims.hospitalId } : {}),
     };
     return next();

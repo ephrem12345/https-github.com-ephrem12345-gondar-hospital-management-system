@@ -26,6 +26,17 @@ async function runSecuritySuite() {
   console.log("GHMS STAGE 4: AUTOMATED SECURITY & PATIENT PRIVACY TEST SUITE");
   console.log("===============================================================");
 
+  // Credentials are read from environment variables — never hardcode here.
+  // Set GHMS_TEST_STAFF_PASSWORD and GHMS_TEST_PATIENT_PASSWORD in backend/.env.
+  const STAFF_PASSWORD = process.env.GHMS_TEST_STAFF_PASSWORD;
+  const PATIENT_PASSWORD = process.env.GHMS_TEST_PATIENT_PASSWORD;
+  if (!STAFF_PASSWORD || !PATIENT_PASSWORD) {
+    console.error(
+      "ERROR: GHMS_TEST_STAFF_PASSWORD and GHMS_TEST_PATIENT_PASSWORD must be set before running this script."
+    );
+    process.exit(1);
+  }
+
   let passed = 0;
   let failed = 0;
 
@@ -66,7 +77,7 @@ async function runSecuritySuite() {
       // 2.1 Patient authentication
       const patientLogin = await request(app)
         .post("/api/v1/auth/login")
-        .send({ identifier: "patient", password: "TestPassword123" });
+        .send({ identifier: "patient", password: PATIENT_PASSWORD });
       assert(patientLogin.status === 200, "Patient login succeeds with valid seed credentials");
       const patientAccess = extractCookie(patientLogin.headers["set-cookie"], "ghms_access");
 
@@ -87,7 +98,7 @@ async function runSecuritySuite() {
       // 2.4 Receptionist attempting admin route
       const recepLogin = await request(app)
         .post("/api/v1/auth/login")
-        .send({ identifier: "receptionist", password: "StaffPassword123" });
+        .send({ identifier: "receptionist", password: STAFF_PASSWORD });
       assert(recepLogin.status === 200, "Receptionist login succeeds");
       const recepAccess = extractCookie(recepLogin.headers["set-cookie"], "ghms_access");
 
@@ -100,7 +111,7 @@ async function runSecuritySuite() {
       // 2.5 Doctor attempting patient portal
       const docLogin = await request(app)
         .post("/api/v1/auth/login")
-        .send({ identifier: "selam.girma", password: "StaffPassword123" });
+        .send({ identifier: "selam.girma", password: STAFF_PASSWORD });
       assert(docLogin.status === 200, "Doctor login succeeds");
       const docAccess = extractCookie(docLogin.headers["set-cookie"], "ghms_access");
 
@@ -120,7 +131,7 @@ async function runSecuritySuite() {
     {
       const patientLogin = await request(app)
         .post("/api/v1/auth/login")
-        .send({ identifier: "patient", password: "TestPassword123" });
+        .send({ identifier: "patient", password: PATIENT_PASSWORD });
       const patientAccess = extractCookie(patientLogin.headers["set-cookie"], "ghms_access");
 
       // Verify portal queries use server-side actor patientId only
@@ -298,7 +309,7 @@ async function runSecuritySuite() {
     {
       const loginRes = await request(app)
         .post("/api/v1/auth/login")
-        .send({ identifier: "receptionist", password: "StaffPassword123", remember: false });
+        .send({ identifier: "receptionist", password: STAFF_PASSWORD, remember: false });
       const refreshRaw = extractCookie(loginRes.headers["set-cookie"], "ghms_refresh");
       assert(refreshRaw !== undefined, "Login issued valid refresh cookie");
 

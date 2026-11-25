@@ -13,65 +13,68 @@ import { LoadingState } from "@/components/ui/LoadingState";
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const [status, setStatus] = useState<"checking" | "authed">("checking");
+  const pathname = usePathname() ?? "";
+  const [status, setStatus] = useState<"checking" | "authed" | "denied">("checking");
 
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Genuinely public routes require no verification
+    // 1. Explicitly public routes require no backend verification
     if (isPublicRoute(pathname)) {
       setStatus("authed");
       return;
     }
 
+    // Reset status to checking whenever navigating between protected routes
+    setStatus("checking");
+
     async function verifyAuth() {
-      // 2. Check local user state or re-validate with backend
-      let user = authService.currentUser();
-      if (!user) {
-        user = await authService.checkSession();
-      }
+      try {
+        // 2. Strict backend session verification: never trust localStorage alone.
+        // Calls /auth/me with HTTP-only cookies; if 401, apiClient automatically attempts /auth/refresh
+        const user = await authService.checkSession();
 
-      if (!isMounted) return;
+        if (!isMounted) return;
 
-      if (!user) {
-        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-        return;
-      }
-
-      const normalizedRole = user.role?.toUpperCase().replace(/\s+/g, "_");
-
-      // 3. Strict Patient Portal Isolation: Patients only access patient portal & profile
-      if (normalizedRole === "PATIENT") {
-        if (!pathname.startsWith("/patient-portal") && pathname !== "/profile") {
-          router.replace("/patient-portal");
+        if (!user) {
+          setStatus("denied");
+          const safeNext = encodeURIComponent(pathname);
+          router.replace(`/login?next=${safeNext}`);
           return;
         }
-      }
 
-      // 4. Staff Isolation: Staff cannot access patient portal
-      if (normalizedRole !== "PATIENT" && pathname.startsWith("/patient-portal")) {
-        router.replace("/access-denied");
-        return;
-      }
+        const normalizedRole = user.role?.toUpperCase().replace(/\s+/g, "_");
 
-      // 5. Department & Role RBAC check
-      if (!canAccessRoute(pathname, user.role)) {
-        router.replace("/access-denied");
-        return;
-      }
-
-      // 6. Asynchronous session validity check against backend /auth/me
-      void authService.checkSession().then((verifiedUser) => {
-        if (!isMounted) return;
-        if (!verifiedUser) {
-          router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-        } else if (!canAccessRoute(pathname, verifiedUser.role)) {
-          router.replace("/access-denied");
+        // 3. Strict Patient Portal Isolation: Patients only access patient portal & profile
+        if (normalizedRole === "PATIENT") {
+          if (!pathname.startsWith("/patient-portal") && pathname !== "/profile") {
+            setStatus("denied");
+            router.replace("/patient-portal");
+            return;
+          }
         }
-      });
 
-      setStatus("authed");
+        // 4. Staff Isolation: Staff cannot access patient portal
+        if (normalizedRole !== "PATIENT" && pathname.startsWith("/patient-portal")) {
+          setStatus("denied");
+          router.replace("/access-denied");
+          return;
+        }
+
+        // 5. Department & Role RBAC check against the backend-verified user role
+        if (!canAccessRoute(pathname, user.role)) {
+          setStatus("denied");
+          router.replace("/access-denied");
+          return;
+        }
+
+        // 6. Verification and authorization succeed: render protected content
+        setStatus("authed");
+      } catch {
+        if (!isMounted) return;
+        setStatus("denied");
+        router.replace("/login");
+      }
     }
 
     void verifyAuth();

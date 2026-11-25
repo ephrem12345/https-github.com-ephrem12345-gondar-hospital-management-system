@@ -58,7 +58,12 @@ function extractCookie(cookieArray, name) {
   return null;
 }
 
-async function loginUser(email, password = "StaffPassword123") {
+async function loginUser(email, password = process.env.GHMS_TEST_STAFF_PASSWORD || "") {
+  if (!password) {
+    throw new Error(
+      "GHMS_TEST_STAFF_PASSWORD is not set. Set it to the staff account password before running this script."
+    );
+  }
   const res = await request("/auth/login", {
     method: "POST",
     body: { identifier: email, password, remember: false },

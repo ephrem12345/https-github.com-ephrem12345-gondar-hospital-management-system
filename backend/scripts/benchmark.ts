@@ -3,6 +3,13 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+// GHMS_TEST_ADMIN_PASSWORD must be set in environment before running this benchmark.
+const ADMIN_PASSWORD = process.env.GHMS_TEST_ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  console.error("ERROR: GHMS_TEST_ADMIN_PASSWORD is not set. Set it and re-run.");
+  process.exit(1);
+}
+
 async function runBenchmark() {
   console.log("=== GHMS PERFORMANCE BENCHMARK ===");
 
@@ -40,7 +47,7 @@ async function runBenchmark() {
   // 2. Bcrypt Compare Latency
   if (user) {
     const bcryptStart = performance.now();
-    await bcrypt.compare("StaffPassword123", user.passwordHash);
+    await bcrypt.compare(ADMIN_PASSWORD, user.passwordHash);
     const bcryptTime = performance.now() - bcryptStart;
     console.log(`[BCRYPT] Password verification (cost=12): ${bcryptTime.toFixed(2)} ms`);
   }
@@ -53,7 +60,7 @@ async function runBenchmark() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         identifier: "admin",
-        password: "StaffPassword123",
+        password: ADMIN_PASSWORD,
         remember: true,
       }),
     });
@@ -67,7 +74,7 @@ async function runBenchmark() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         identifier: "admin",
-        password: "StaffPassword123",
+        password: ADMIN_PASSWORD,
         remember: true,
       }),
     });

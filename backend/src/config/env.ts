@@ -1,5 +1,11 @@
-import "dotenv/config";
+import path from "node:path";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+const configDir = typeof __dirname !== "undefined" ? __dirname : path.resolve("backend/src/config");
+// Explicitly resolve and load backend/.env relative to this directory, then load cwd .env
+dotenv.config({ path: path.resolve(configDir, "../../.env") });
+dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -28,7 +34,7 @@ const envSchema = z.object({
   CHAPA_WEBHOOK_SECRET: z.string().min(16).optional(),
   CHAPA_BASE_URL: z.string().url().default("https://api.chapa.co/v1"),
   CHAPA_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
-  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+  FRONTEND_URL: z.string().url().default("http://localhost:3002"),
   BACKEND_PUBLIC_URL: z.string().url().optional(),
 
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),

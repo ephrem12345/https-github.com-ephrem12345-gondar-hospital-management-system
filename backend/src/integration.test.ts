@@ -46,6 +46,9 @@ integration("GHMS API and MySQL integration", () => {
     if (database) await database.$disconnect();
   });
 
+  const TEST_PATIENT_PASSWORD = "SyntheticTestPatientPass123!";
+  const TEST_STAFF_PASSWORD = "SyntheticTestStaffPass123!";
+
   function patientRegistration(email: string, phone: string) {
     return {
       firstName: "Integration",
@@ -56,7 +59,7 @@ integration("GHMS API and MySQL integration", () => {
       phone,
       email,
       address: "Gondar integration test address",
-      password: "TestPassword123",
+      password: TEST_PATIENT_PASSWORD,
       termsAccepted: true,
     };
   }
@@ -65,7 +68,7 @@ integration("GHMS API and MySQL integration", () => {
     return database.user.create({
       data: {
         email: `${role.toLowerCase()}-${randomUUID()}@example.test`,
-        passwordHash: await bcrypt.hash("StaffPassword123", 4),
+        passwordHash: await bcrypt.hash(TEST_STAFF_PASSWORD, 4),
         role,
         status: "ACTIVE",
         hospitalId,
@@ -113,7 +116,7 @@ integration("GHMS API and MySQL integration", () => {
   }, 30000);
 
   it("authenticates, books, lists, checks in, calls a queue entry, and revokes the session", async () => {
-    const staff = await createStaff("ADMINISTRATOR");
+    const staff = await createStaff("RECEPTIONIST");
     const patientEmail = `patient-${randomUUID()}@example.test`;
     const registration = await http(app).post("/api/v1/auth/register").send(
       patientRegistration(patientEmail, `+2519${randomUUID().replace(/\D/g, "").slice(0, 8)}`),
@@ -140,10 +143,10 @@ integration("GHMS API and MySQL integration", () => {
       },
     });
 
-    const cookie = await loginCookie(staff.email, "StaffPassword123");
+    const cookie = await loginCookie(staff.email, TEST_STAFF_PASSWORD);
     const me = await http(app).get("/api/v1/auth/me").set("Cookie", cookie);
     expect(me.status).toBe(200);
-    expect(me.body.data.role).toBe("Administrator");
+    expect(me.body.data.role).toBe("Receptionist");
 
     const booking = await http(app).post("/api/v1/appointments").set("Cookie", cookie).send({
       patientId: patient.patientNumber,
@@ -185,7 +188,7 @@ integration("GHMS API and MySQL integration", () => {
   }, 30000);
 
   it("registers emergency cases, stores triage history, and denies doctors outside emergency", async () => {
-    const admin = await createStaff("ADMINISTRATOR");
+    const emergencyStaff = await createStaff("DOCTOR", "Emergency");
     const patient = await database.patient.create({
       data: {
         patientNumber: `GHMS-${randomUUID().slice(0, 8).toUpperCase()}`,
@@ -198,7 +201,7 @@ integration("GHMS API and MySQL integration", () => {
         department: "Emergency",
       },
     });
-    const cookie = await loginCookie(admin.email, "StaffPassword123");
+    const cookie = await loginCookie(emergencyStaff.email, TEST_STAFF_PASSWORD);
     const registration = await http(app).post("/api/v1/emergency/cases").set("Cookie", cookie).send({
       patientIdentifier: patient.patientNumber,
       arrivalMode: "Walk-in",
@@ -244,7 +247,7 @@ integration("GHMS API and MySQL integration", () => {
     await database.user.update({ where: { email }, data: { status: "ACTIVE" } });
     await database.patient.update({ where: { id: record!.patient!.id }, data: { department: "Internal Medicine" } });
 
-    const cookie = await loginCookie(email, "TestPassword123");
+    const cookie = await loginCookie(email, TEST_PATIENT_PASSWORD);
     const actorId = (await database.user.findUnique({ where: { email } }))!.id;
     await database.doctor.create({
       data: { userId: null, name: "Portal Test Doctor", specialty: "General", department: "Internal Medicine", active: true, schedules: { create: { department: "Internal Medicine", dayOfWeek: new Date("2026-12-01T00:00:00Z").getUTCDay(), startTime: "08:00", endTime: "17:00", slotDurationMins: 30 } } },
@@ -291,7 +294,7 @@ integration("GHMS API and MySQL integration", () => {
     const otherEmail = `portal-${randomUUID()}@example.test`;
     await http(app).post("/api/v1/auth/register").send(patientRegistration(otherEmail, `+2519${randomUUID().replace(/\D/g, "").slice(0, 8)}`));
     await database.user.update({ where: { email: otherEmail }, data: { status: "ACTIVE" } });
-    const otherCookie = await loginCookie(otherEmail, "TestPassword123");
+    const otherCookie = await loginCookie(otherEmail, TEST_PATIENT_PASSWORD);
     const foreignRead = await http(app).post(`/api/v1/portal/notifications/${firstNotification.id}/read`).set("Cookie", otherCookie);
     expect([403, 404]).toContain(foreignRead.status);
     const foreignChange = await http(app).patch(`/api/v1/portal/appointments/${appointment.id}/change`).set("Cookie", otherCookie).send({ action: "cancel" });
@@ -299,7 +302,7 @@ integration("GHMS API and MySQL integration", () => {
 
     // Staff accounts are locked out of the portal.
     const admin = await createStaff("ADMINISTRATOR");
-    const staffCookie = await loginCookie(admin.email, "StaffPassword123");
+    const staffCookie = await loginCookie(admin.email, TEST_STAFF_PASSWORD);
     const staffPortal = await http(app).get("/api/v1/portal/profile").set("Cookie", staffCookie);
     expect(staffPortal.status).toBe(403);
   }, 30000);

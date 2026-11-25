@@ -112,7 +112,11 @@ export default function DashboardPage() {
     let cancelled = false;
 
     const user = authService.currentUser();
-    if (user && !canAccessRoute("/overview", user.role)) {
+    if (!user) {
+      router.replace("/login?next=%2Foverview");
+      return;
+    }
+    if (!canAccessRoute("/overview", user.role)) {
       router.replace(getRoleDashboard(user.role));
       return;
     }
@@ -135,15 +139,7 @@ export default function DashboardPage() {
     };
   }, [reloadKey]);
 
-  const currentUser = authService.currentUser() ?? {
-    id: "usr-001",
-    name: "Dr. Abebe Bekele",
-    role: "Chief Administrator",
-    department: "Administration",
-    email: "abebe.bekele@gondar-hospital.et",
-    phone: "+251 911 000 111",
-    initials: "AB",
-  };
+  const currentUser = authService.currentUser();
 
   const dateLabel = useMemo(() => {
     if (selectedRange === "custom") {
@@ -290,10 +286,10 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Welcome back</p>
-              <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{currentUser.name}</h2>
+              <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{currentUser?.name ?? "Staff Member"}</h2>
             </div>
             <div className="rounded-full bg-light-blue px-3 py-1 text-xs font-medium text-primary-700 dark:bg-primary/15 dark:text-primary-300">
-              {currentUser.department}
+              {currentUser?.department ?? currentUser?.role ?? "Hospital Staff"}
             </div>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">

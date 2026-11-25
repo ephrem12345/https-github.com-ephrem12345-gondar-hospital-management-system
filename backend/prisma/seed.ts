@@ -22,11 +22,199 @@ import {
 
 const prisma = new PrismaClient();
 
+// ---------------------------------------------------------------------------
+// Seed password resolution — never hardcode real credentials here.
+// Set GHMS_SEED_STAFF_PASSWORD and GHMS_SEED_PATIENT_PASSWORD in backend/.env
+// before running the seed in any environment.
+// ---------------------------------------------------------------------------
+function generateSecurePassword(): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const crypto = require("crypto") as typeof import("crypto");
+  const chars =
+    "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%&*";
+  return Array.from(crypto.randomBytes(20) as Uint8Array)
+    .map((b: number) => chars[b % chars.length])
+    .join("");
+}
+
+function resolveSeedPassword(
+  envVar: string,
+  label: string
+): { password: string; generated: boolean } {
+  const value = process.env[envVar];
+  if (value) return { password: value, generated: false };
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      `\nFATAL: ${envVar} must be set in production. ` +
+        `Never run seed without explicit credentials in production.\n`
+    );
+    process.exit(1);
+  }
+  const password = generateSecurePassword();
+  console.warn(
+    `\n[SEED WARNING] ${envVar} is not set. ` +
+      `A one-time random password will be used for new ${label} accounts: ${password}\n` +
+      `  Add   ${envVar}=<password>   to backend/.env to use a fixed value.\n`
+  );
+  return { password, generated: true };
+}
+
 async function main() {
   console.log("Seeding GHMS database with Stage 3 comprehensive hospital data...");
 
-  const staffPasswordHash = await bcrypt.hash("StaffPassword123", 12);
-  const patientPasswordHash = await bcrypt.hash("TestPassword123", 12);
+  const { password: rawStaffPassword } = resolveSeedPassword(
+    "GHMS_SEED_STAFF_PASSWORD",
+    "staff"
+  );
+  const { password: rawPatientPassword } = resolveSeedPassword(
+    "GHMS_SEED_PATIENT_PASSWORD",
+    "patient"
+  );
+
+  const staffPasswordHash = await bcrypt.hash(rawStaffPassword, 12);
+  const patientPasswordHash = await bcrypt.hash(rawPatientPassword, 12);
+
+  // ==========================================
+  // 0. HOSPITAL TENANT & SAAS SUBSCRIPTIONS
+  // ==========================================
+  console.log("--> Seeding primary hospital tenant and SaaS plans...");
+  const plans = [
+    {
+      code: "BASIC",
+      name: "Basic Hospital Plan",
+      description: "Essential patient registration, appointments, basic billing, and outpatient management.",
+      monthlyPrice: 5000.0,
+      annualPrice: 54000.0,
+      maxStaff: 25,
+      maxPatients: 2000,
+      features: JSON.stringify([
+        "patient_registration",
+        "appointment_management",
+        "basic_billing",
+        "outpatient_queue",
+        "basic_reports",
+      ]),
+      isActive: true,
+    },
+    {
+      code: "PROFESSIONAL",
+      name: "Professional Medical Center Plan",
+      description: "Full clinical services, doctor & nurse workspaces, laboratory, pharmacy, and advanced billing with Chapa.",
+      monthlyPrice: 15000.0,
+      annualPrice: 162000.0,
+      maxStaff: 100,
+      maxPatients: 10000,
+      features: JSON.stringify([
+        "patient_registration",
+        "appointment_management",
+        "clinical_services",
+        "nursing_vitals",
+        "laboratory_management",
+        "pharmacy_inventory",
+        "chapa_online_payments",
+        "clinical_messaging",
+        "advanced_reports",
+      ]),
+      isActive: true,
+    },
+    {
+      code: "ENTERPRISE",
+      name: "Enterprise Multi-Department Hospital Plan",
+      description: "Comprehensive hospital operations including emergency triage, inpatient wards, operating rooms, ambulance fleet, blood bank, and custom permissions.",
+      monthlyPrice: 35000.0,
+      annualPrice: 378000.0,
+      maxStaff: 500,
+      maxPatients: 100000,
+      features: JSON.stringify([
+        "all_professional_features",
+        "emergency_triage_management",
+        "inpatient_admissions_wards",
+        "operating_room_scheduling",
+        "ambulance_fleet_management",
+        "blood_bank_donor_management",
+        "multi_department_workflows",
+        "custom_rbac_permissions",
+        "priority_support",
+        "audit_compliance",
+      ]),
+      isActive: true,
+    },
+  ];
+
+  for (const plan of plans) {
+    await prisma.subscriptionPlan.upsert({
+      where: { code: plan.code },
+      update: {
+        name: plan.name,
+        description: plan.description,
+        monthlyPrice: plan.monthlyPrice,
+        annualPrice: plan.annualPrice,
+        maxStaff: plan.maxStaff,
+        maxPatients: plan.maxPatients,
+        features: plan.features,
+        isActive: plan.isActive,
+      },
+      create: plan,
+    });
+  }
+
+  const defaultHospital = await prisma.hospital.upsert({
+    where: { code: "gondar-hospital" },
+    update: {
+      name: "Gondar University Comprehensive Specialized Hospital",
+      city: "Gondar",
+      region: "Amhara",
+      address: "University of Gondar, College of Medicine and Health Sciences",
+      phone: "+251 58 114 1234",
+      email: "info@gondar-hospital.et",
+      hospitalType: "TERTIARY_REFERRAL",
+      status: "ACTIVE",
+      tier: "ENTERPRISE",
+    },
+    create: {
+      code: "gondar-hospital",
+      name: "Gondar University Comprehensive Specialized Hospital",
+      city: "Gondar",
+      region: "Amhara",
+      address: "University of Gondar, College of Medicine and Health Sciences",
+      phone: "+251 58 114 1234",
+      email: "info@gondar-hospital.et",
+      hospitalType: "TERTIARY_REFERRAL",
+      status: "ACTIVE",
+      tier: "ENTERPRISE",
+      maxStaff: 500,
+      maxPatients: 100000,
+    },
+  });
+
+  const enterprisePlan = await prisma.subscriptionPlan.findUnique({
+    where: { code: "ENTERPRISE" },
+  });
+
+  const existingSub = await prisma.hospitalSubscription.findFirst({
+    where: { hospitalId: defaultHospital.id },
+  });
+
+  if (!existingSub && enterprisePlan) {
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
+    await prisma.hospitalSubscription.create({
+      data: {
+        hospitalId: defaultHospital.id,
+        planId: enterprisePlan.id,
+        status: "ACTIVE",
+        cycle: "ANNUAL",
+        amount: enterprisePlan.annualPrice,
+        currency: "ETB",
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        gracePeriodDays: 14,
+        autoRenew: true,
+      },
+    });
+  }
 
   // ==========================================
   // 1. HOSPITAL DEPARTMENTS
@@ -106,24 +294,32 @@ async function main() {
   // ==========================================
   // 3. CORE USER ACCOUNTS (VERIFIED ROLES)
   // ==========================================
-  console.log("--> Seeding core verified user accounts...");
+  console.log("--> Seeding core verified user accounts with tenant associations...");
 
   // 3.1 Chief Administrator (Dr. Abebe Bekele)
+  // Explicitly preserve existing custom admin password if user already exists
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: "abebe.bekele@gondar-hospital.et" },
+  });
+  const adminPasswordHash = existingAdmin?.passwordHash || staffPasswordHash;
+
   const admin = await prisma.user.upsert({
     where: { email: "abebe.bekele@gondar-hospital.et" },
     update: {
       status: AccountStatus.ACTIVE,
       role: UserRole.ADMINISTRATOR,
       department: "Administration",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      passwordHash: adminPasswordHash,
     },
     create: {
       email: "abebe.bekele@gondar-hospital.et",
       username: "admin",
       phone: "+251911000111",
-      passwordHash: staffPasswordHash,
+      passwordHash: adminPasswordHash,
       role: UserRole.ADMINISTRATOR,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Abebe",
       lastName: "Bekele",
       department: "Administration",
@@ -137,7 +333,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.DOCTOR,
       department: "Internal Medicine",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "selam.girma@gondar-hospital.et",
@@ -146,6 +343,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.DOCTOR,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Selam",
       lastName: "Girma",
       department: "Internal Medicine",
@@ -206,7 +404,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.NURSE,
       department: "Internal Medicine",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "tigist.alemu@gondar-hospital.et",
@@ -215,6 +414,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.NURSE,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Tigist",
       lastName: "Alemu",
       department: "Internal Medicine",
@@ -228,7 +428,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.LABORATORY_TECHNICIAN,
       department: "Laboratory",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "getu.assefa@gondar-hospital.et",
@@ -237,6 +438,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.LABORATORY_TECHNICIAN,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Getu",
       lastName: "Assefa",
       department: "Laboratory",
@@ -250,7 +452,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.PHARMACIST,
       department: "Pharmacy",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "liya.tesfaye@gondar-hospital.et",
@@ -259,6 +462,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.PHARMACIST,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Liya",
       lastName: "Tesfaye",
       department: "Pharmacy",
@@ -272,7 +476,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.FINANCE_OFFICER,
       department: "Finance",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "hanif.jemal@gondar-hospital.et",
@@ -281,6 +486,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.FINANCE_OFFICER,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Hanif",
       lastName: "Jemal",
       department: "Finance",
@@ -294,7 +500,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.RECEPTIONIST,
       department: "Registration",
-      passwordHash: staffPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "receptionist@gondar-hospital.et",
@@ -303,6 +510,7 @@ async function main() {
       passwordHash: staffPasswordHash,
       role: UserRole.RECEPTIONIST,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Almaz",
       lastName: "Tadesse",
       department: "Registration",
@@ -316,7 +524,8 @@ async function main() {
       status: AccountStatus.ACTIVE,
       role: UserRole.PATIENT,
       department: "Registration",
-      passwordHash: patientPasswordHash,
+      hospitalId: defaultHospital.id,
+      // passwordHash omitted from update — do not overwrite an existing password on re-seed
     },
     create: {
       email: "patient@gondar-hospital.et",
@@ -325,6 +534,7 @@ async function main() {
       passwordHash: patientPasswordHash,
       role: UserRole.PATIENT,
       status: AccountStatus.ACTIVE,
+      hospitalId: defaultHospital.id,
       firstName: "Almaz",
       lastName: "Tadesse",
       department: "Registration",
@@ -339,6 +549,7 @@ async function main() {
     where: { patientNumber: "GHMS-000001" },
     update: {
       userId: patientUser.id,
+      hospitalId: defaultHospital.id,
       firstName: "Almaz",
       lastName: "Tadesse",
       sex: "female",
@@ -357,6 +568,7 @@ async function main() {
     create: {
       patientNumber: "GHMS-000001",
       userId: patientUser.id,
+      hospitalId: defaultHospital.id,
       firstName: "Almaz",
       lastName: "Tadesse",
       sex: "female",
@@ -873,6 +1085,17 @@ async function main() {
       },
     });
   }
+
+  // ==========================================
+  // 9. TENANT INTEGRITY BACKFILL
+  // ==========================================
+  console.log("--> Ensuring all historical records are linked to the primary hospital tenant...");
+  await prisma.user.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
+  await prisma.patient.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
+  await prisma.appointment.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
+  await prisma.invoice.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
+  await prisma.payment.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
+  await prisma.conversation.updateMany({ where: { hospitalId: null }, data: { hospitalId: defaultHospital.id } });
 
   console.log("=== GHMS STAGE 3 SEEDING COMPLETED SUCCESSFULLY ===");
 }

@@ -56,6 +56,13 @@ async function runTests() {
   console.log("GHMS ACCOUNT STATUS, ACTIVATION WORKFLOW, AND SECURITY TEST SUITE");
   console.log("================================================================================\n");
 
+  const ADMIN_PASSWORD = process.env.GHMS_TEST_ADMIN_PASSWORD;
+  if (!ADMIN_PASSWORD) {
+    console.error("ERROR: GHMS_TEST_ADMIN_PASSWORD is not set.");
+    console.error("Set it to the administrator account password before running this script.");
+    process.exit(1);
+  }
+
   let passed = 0;
   let failed = 0;
 
@@ -75,7 +82,7 @@ async function runTests() {
     method: "POST",
     body: {
       identifier: "abebe.bekele@gondar-hospital.et",
-      password: "StaffPassword123",
+      password: ADMIN_PASSWORD,
       remember: false,
     },
   });

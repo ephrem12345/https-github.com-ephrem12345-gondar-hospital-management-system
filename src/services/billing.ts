@@ -97,6 +97,8 @@ export const billingApi = {
   verifyPayment: (txRef: string) =>
     apiClient.get<PaymentVerification>(`/payments/chapa/verify/${encodeURIComponent(txRef)}`, undefined, { skipCache: true }),
   receipt: (paymentId: string) => apiClient.get<Record<string, unknown>>(`/payments/receipt/${encodeURIComponent(paymentId)}`),
+  paymentHistory: (query?: { limit?: number; offset?: number }) =>
+    apiClient.get<{ total: number; items: Array<Record<string, unknown>> }>("/payments/history", query as Record<string, string | number | boolean | undefined>),
   analytics: () => apiClient.get<Record<string, unknown>>("/payments/analytics"),
   platformAnalytics: () => apiClient.get<PlatformAnalytics>("/saas/analytics"),
   hospitals: () => apiClient.get<Array<{ id: string; name: string; code: string; tier: PlanCode; status: string; subscriptions: Array<{ status: string }>; _count: { users: number; patients: number } }>>("/saas/hospitals"),

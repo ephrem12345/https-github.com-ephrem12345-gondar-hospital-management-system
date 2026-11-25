@@ -11,14 +11,52 @@ const REFRESH_COOKIE = "ghms_refresh";
 const ONE_DAY = 24 * 60 * 60;
 const REFRESH_TTL = 30 * ONE_DAY;
 
-type LockoutEntry = {
+/**
+ * In-memory brute-force lockout tracker with capacity bounding and TTL-based eviction.
+ * 
+ * ARCHITECTURAL NOTICE:
+ * In-memory state does not persist across process restarts or horizontally scaled
+ * node processes. For clustered or multi-instance production deployments, configure
+ * a shared, persistent Redis store (e.g., redis / ioredis) or database rate-limiter.
+ */
+export type LockoutEntry = {
   count: number;
   lockedUntil: number | null;
+  lastAttemptAt: number;
 };
 
-const failedLoginTracker = new Map<string, LockoutEntry>();
-const MAX_CONSECUTIVE_FAILED_LOGINS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
+export const failedLoginTracker = new Map<string, LockoutEntry>();
+export const MAX_CONSECUTIVE_FAILED_LOGINS = 5;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
+export const MAX_LOCKOUT_ENTRIES = 5000; // Max distinct tracked identifiers to prevent memory exhaustion
+export const ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes failure window
+
+/** Safely evicts expired lockout entries or oldest records if over capacity */
+export function cleanupLockoutTracker(now: number = Date.now()): void {
+  for (const [key, entry] of failedLoginTracker.entries()) {
+    const isLocked = entry.lockedUntil !== null && entry.lockedUntil > now;
+    const isRecent = (now - entry.lastAttemptAt) < ATTEMPT_WINDOW_MS;
+    if (!isLocked && !isRecent) {
+      failedLoginTracker.delete(key);
+    }
+  }
+
+  // If still above maximum capacity, evict oldest entries (FIFO)
+  if (failedLoginTracker.size > MAX_LOCKOUT_ENTRIES) {
+    const excess = failedLoginTracker.size - MAX_LOCKOUT_ENTRIES;
+    let removed = 0;
+    for (const key of failedLoginTracker.keys()) {
+      if (removed >= excess) break;
+      failedLoginTracker.delete(key);
+      removed++;
+    }
+  }
+}
+
+/** Testing and diagnostic helper to reset lockout tracker */
+export function resetLockoutTracker(): void {
+  failedLoginTracker.clear();
+}
 
 type UserWithPatient = User & {
   patient: { id: string; department: string; phone: string } | null;
@@ -27,6 +65,18 @@ type UserWithPatient = User & {
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Determines whether password-reset tokens may be returned in API response bodies.
+ * Strictly fails closed: Production, staging, unknown, or missing environments never expose tokens.
+ */
+export function shouldExposeResetTokenInResponse(environment?: string): boolean {
+  const targetEnv = arguments.length > 0 ? environment : env.NODE_ENV;
+  if (!targetEnv || typeof targetEnv !== "string") return false;
+  const normalized = targetEnv.trim().toLowerCase();
+  if (normalized === "production") return false;
+  return normalized === "development" || normalized === "test";
 }
 
 function cookie(name: string, value: string, maxAge: number) {
@@ -119,20 +169,29 @@ export class AuthService {
   ) {
     const trimmed = identifier.trim();
     const normalized = trimmed.toLowerCase();
+    const now = Date.now();
+
+    // Enforce bounded cache capacity to prevent memory growth under attack
+    if (failedLoginTracker.size >= MAX_LOCKOUT_ENTRIES) {
+      cleanupLockoutTracker(now);
+    }
 
     const lockout = failedLoginTracker.get(normalized);
-    const now = Date.now();
-    if (lockout?.lockedUntil && lockout.lockedUntil <= now) {
-      failedLoginTracker.delete(normalized);
-    }
-    if (lockout && lockout.lockedUntil && lockout.lockedUntil > now) {
-      const remainingMinutes = Math.ceil((lockout.lockedUntil - now) / 60000);
-      void this.audit(null, "AUTH_LOGIN_LOCKED", requestId);
-      throw new HttpError(
-        429,
-        `Account temporarily locked due to excessive failed attempts. Please try again in ${remainingMinutes} minute(s).`,
-        "ACCOUNT_LOCKED"
-      );
+    if (lockout) {
+      if (lockout.lockedUntil && lockout.lockedUntil <= now) {
+        failedLoginTracker.delete(normalized);
+      } else if (lockout.lockedUntil && lockout.lockedUntil > now) {
+        const remainingMinutes = Math.ceil((lockout.lockedUntil - now) / 60000);
+        void this.audit(null, "AUTH_LOGIN_LOCKED", requestId);
+        throw new HttpError(
+          429,
+          `Account temporarily locked due to excessive failed attempts. Please try again in ${remainingMinutes} minute(s).`,
+          "ACCOUNT_LOCKED"
+        );
+      } else if (!lockout.lockedUntil && (now - lockout.lastAttemptAt) > ATTEMPT_WINDOW_MS) {
+        // Old failed attempt outside window decayed
+        failedLoginTracker.delete(normalized);
+      }
     }
 
     const user = await this.database.user.findFirst({
@@ -162,8 +221,12 @@ export class AuthService {
     }) as UserWithPatient | null;
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-      const entry = failedLoginTracker.get(normalized) ?? { count: 0, lockedUntil: null };
+      const entry = failedLoginTracker.get(normalized) ?? { count: 0, lockedUntil: null, lastAttemptAt: now };
+      if ((now - entry.lastAttemptAt) > ATTEMPT_WINDOW_MS && !entry.lockedUntil) {
+        entry.count = 0;
+      }
       entry.count += 1;
+      entry.lastAttemptAt = now;
       if (entry.count >= MAX_CONSECUTIVE_FAILED_LOGINS) {
         entry.lockedUntil = now + LOCKOUT_DURATION_MS;
         void this.audit(user?.id ?? null, "AUTH_LOGIN_LOCKED", requestId);
@@ -346,7 +409,6 @@ export class AuthService {
         email: true,
         username: true,
         phone: true,
-        passwordHash: true,
         role: true,
         status: true,
         firstName: true,
@@ -415,10 +477,12 @@ export class AuthService {
       await this.audit(null, "AUTH_PASSWORD_RESET_UNKNOWN_IDENTIFIER", requestId);
     }
 
-    // Uniform anti-enumeration response
+    // Strict production security: reset tokens must NEVER be returned in production responses.
+    // In production, instructions and tokens are dispatched out-of-band to verified contact channels.
+    const exposeDevToken = shouldExposeResetTokenInResponse(env.NODE_ENV);
     return {
       message: "If an account matches that identifier, password reset instructions have been dispatched.",
-      ...(env.NODE_ENV !== "production" ? { resetToken } : {}),
+      ...(exposeDevToken && resetToken ? { resetToken } : {}),
     };
   }
 

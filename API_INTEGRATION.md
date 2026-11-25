@@ -65,7 +65,7 @@ All error responses return:
 ```json
 {
   "identifier": "selam.girma",
-  "password": "StaffPassword123",
+  "password": "YourSecurePassword123!",
   "remember": true
 }
 ```

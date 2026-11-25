@@ -110,12 +110,12 @@ const PlatformAdminScreen = dynamic(
  * configurations from `src/modules/*` composed with shared templates.
  */
 export default function ModuleScreenPage() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const { t } = useTranslation();
   const nav = resolveNav(pathname);
 
   const currentUser = authService.currentUser();
-  if (currentUser && !canAccessRoute(pathname, currentUser.role)) {
+  if (!currentUser || !canAccessRoute(pathname, currentUser.role)) {
     return <AccessDeniedPage />;
   }
 

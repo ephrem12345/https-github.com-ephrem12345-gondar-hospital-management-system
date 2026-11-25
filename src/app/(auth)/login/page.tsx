@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, ArrowLeft } from "lucide-react";
-import { authService, ApiError } from "@/services";
+import { authService, ApiError, apiClient } from "@/services";
+import type { ConnectionDiagnostic } from "@/services/api-client";
 import { loginSchema, type LoginInput } from "@/validation/schemas";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/Button";
@@ -22,11 +23,13 @@ import {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const roleParam = searchParams.get("role");
+  const roleParam = searchParams?.get("role") ?? null;
   const selectedRole: RoleConfig | null = getRoleConfig(roleParam);
 
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [diag, setDiag] = useState<ConnectionDiagnostic | null>(null);
+  const [checkingDiag, setCheckingDiag] = useState(false);
 
   const {
     register,
@@ -45,16 +48,23 @@ function LoginForm() {
   }, [setValue]);
 
   useEffect(() => {
-    if (authService.isAuthenticated()) {
-      const user = authService.currentUser();
-      if (user?.role?.toUpperCase() === "PATIENT") {
+    // Only redirect away from login if the user has an active, backend-verified session
+    let isMounted = true;
+    async function verifyExistingSession() {
+      const user = await authService.checkSession();
+      if (!isMounted || !user) return;
+      if (user.role?.toUpperCase() === "PATIENT") {
         router.replace("/patient-portal");
       } else if (selectedRole) {
         router.replace(selectedRole.defaultDashboard);
       } else {
-        router.replace(getRoleDefaultDashboard(user?.role));
+        router.replace(getRoleDefaultDashboard(user.role));
       }
     }
+    void verifyExistingSession();
+    return () => {
+      isMounted = false;
+    };
   }, [router, selectedRole]);
 
   const onSubmit = handleSubmit(async (values) => {
@@ -87,11 +97,13 @@ function LoginForm() {
         }
       }
 
-      const requestedNext = searchParams.get("next");
+      const requestedNext = searchParams?.get("next");
       const safeNext =
         requestedNext &&
         requestedNext.startsWith("/") &&
         !requestedNext.startsWith("//") &&
+        !requestedNext.startsWith("/\\") &&
+        !requestedNext.toLowerCase().includes("javascript:") &&
         !requestedNext.startsWith("/login")
           ? requestedNext
           : null;
@@ -221,12 +233,59 @@ function LoginForm() {
         </div>
 
         {error ? (
-          <p
-            className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger dark:bg-danger/15 leading-relaxed"
-            role="alert"
-          >
-            {error}
-          </p>
+          <div className="space-y-2">
+            <p
+              className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger dark:bg-danger/15 leading-relaxed"
+              role="alert"
+            >
+              {error}
+            </p>
+            {error.includes("Unable to connect") || error.includes("server") || error.includes("timed out") ? (
+              <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">Server Diagnostic Tool</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setCheckingDiag(true);
+                      const res = await apiClient.checkConnection();
+                      setDiag(res);
+                      setCheckingDiag(false);
+                    }}
+                    className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
+                    disabled={checkingDiag}
+                  >
+                    {checkingDiag ? "Testing..." : "Test Server Connection"}
+                  </button>
+                </div>
+                {diag ? (
+                  <div className="space-y-1 font-mono text-[11px] pt-1">
+                    <div className="flex justify-between">
+                      <span>API URL:</span>
+                      <span className="text-slate-800 dark:text-slate-200">{diag.apiUrl}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Backend (/api/health):</span>
+                      <span className={diag.backendReachable ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                        {diag.backendReachable ? `ONLINE (${diag.latencyMs}ms)` : "OFFLINE / UNREACHABLE"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>MySQL Database:</span>
+                      <span className={diag.databaseReady ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                        {diag.databaseReady ? "READY" : "NOT READY"}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 pt-1 font-sans">{diag.message}</p>
+                  </div>
+                ) : (
+                  <p className="text-slate-500">
+                    To start the backend and database, run <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">START-GHMS.bat</span> in the GHMS project directory.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         <Button type="submit" className="w-full" loading={isSubmitting} disabled={isSubmitting}>

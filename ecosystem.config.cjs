@@ -20,7 +20,7 @@ module.exports = {
     {
       name: "ghms-frontend-web",
       script: "npm",
-      args: "run start -- -p 3000",
+      args: "run start:frontend",
       cwd: ".",
       instances: 2,
       exec_mode: "cluster",
@@ -29,7 +29,7 @@ module.exports = {
       max_memory_restart: "1G",
       env: {
         NODE_ENV: "production",
-        PORT: 3000,
+        PORT: 3002,
       },
     },
   ],

@@ -12,15 +12,31 @@ try {
   process.exit(1);
 }
 
+// Pre-check MySQL database connection on startup
+void prisma.$queryRaw`SELECT 1`
+  .then(() => {
+    logger.info("GHMS Database connection verified successfully (MySQL)");
+  })
+  .catch((dbError: unknown) => {
+    logger.warn(
+      { err: dbError },
+      "GHMS Database connection could not be established immediately. Verify MySQL is running on port 3306 in XAMPP.",
+    );
+    console.warn(
+      "[GHMS] Warning: MySQL is not responding on port 3306. Ensure XAMPP MySQL is started.",
+    );
+  });
+
 const stopJobs = startSubscriptionJobs(prisma);
-const server = app.listen(env.PORT);
+const host = process.env.HOST || "0.0.0.0";
+const server = app.listen(env.PORT, host);
 
 server.on("listening", () => {
   const address = server.address();
   const port = typeof address === "object" && address !== null ? address.port : env.PORT;
   const apiUrl = `http://localhost:${port}/api/v1`;
 
-  logger.info({ port, environment: env.NODE_ENV }, "GHMS Backend Started Successfully");
+  logger.info({ port, host, environment: env.NODE_ENV }, "GHMS Backend Started Successfully");
 
   // The banner is intentionally written with console.log so it is always
   // visible, even when LOG_LEVEL is configured above "info".
@@ -29,11 +45,12 @@ server.on("listening", () => {
       "",
       "============================================================",
       " GHMS Backend Started Successfully",
-      ` Environment: ${env.NODE_ENV}`,
-      ` Port: ${port}`,
-      ` API: ${apiUrl}`,
-      ` Health: ${apiUrl}/health`,
-      ` Readiness: ${apiUrl}/ready`,
+      ` Environment:    ${env.NODE_ENV}`,
+      ` Host & Port:    ${host}:${port}`,
+      ` API Base (v1):  ${apiUrl}`,
+      ` API Health:     http://localhost:${port}/api/health`,
+      ` Health (v1):    ${apiUrl}/health`,
+      ` Readiness:      ${apiUrl}/ready`,
       "============================================================",
       "",
     ].join("\n"),

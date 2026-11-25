@@ -482,13 +482,13 @@ export class AppointmentService {
     } else if (actor.role === "DOCTOR") {
       const doctor = await this.db.doctor.findUnique({ where: { userId: actor.userId }, select: { id: true } });
       if (!doctor || doctor.id !== appointment.doctorId) throw new HttpError(403, "You are not authorized to access this appointment", "FORBIDDEN");
-    } else if (actor.role !== "ADMINISTRATOR" && actor.role !== "RECEPTIONIST") {
+    } else if (actor.role !== "ADMINISTRATOR" && actor.role !== "SUPER_ADMIN" && actor.role !== "RECEPTIONIST") {
       if (!actor.department || actor.department !== appointment.department) throw new HttpError(403, "You are not authorized to access this appointment", "FORBIDDEN");
     }
   }
 
   private assertDepartment(department: string, actor: Actor) {
-    if (actor.role !== "ADMINISTRATOR" && actor.role !== "RECEPTIONIST" && actor.role !== "PATIENT" && actor.role !== "DOCTOR") {
+    if (actor.role !== "ADMINISTRATOR" && actor.role !== "SUPER_ADMIN" && actor.role !== "RECEPTIONIST" && actor.role !== "PATIENT" && actor.role !== "DOCTOR") {
       if (!actor.department || actor.department !== department) throw new HttpError(403, "You are not authorized to use this department", "FORBIDDEN");
     }
   }

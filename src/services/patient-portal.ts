@@ -390,37 +390,18 @@ export class DemoPatientPortalApi implements PatientPortalApi {
 export const demoApiInstance = new DemoPatientPortalApi();
 export const httpApiInstance = new HttpPatientPortalApi();
 
-function getClientUserRole(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem("ghms-user");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.role ? String(parsed.role).toUpperCase() : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Demo mode is opt-in via NEXT_PUBLIC_API_MODE=demo or automatic preview fallback when not signed in as patient. */
+/**
+ * Patient portal API provider.
+ * Strictly communicates with backend endpoints via HTTP cookies.
+ * Demo fixture mode is only active when explicitly configured via NEXT_PUBLIC_API_MODE=demo.
+ */
 export function patientPortalApi(): PatientPortalApi {
   if (process.env.NEXT_PUBLIC_API_MODE === "demo") return demoApiInstance;
-  if (typeof window !== "undefined") {
-    const role = getClientUserRole();
-    if (role !== "PATIENT") {
-      return demoApiInstance;
-    }
-  }
   return httpApiInstance;
 }
 
 export const isDemoPortal = () => {
-  if (process.env.NEXT_PUBLIC_API_MODE === "demo") return true;
-  if (typeof window !== "undefined") {
-    const role = getClientUserRole();
-    return role !== "PATIENT";
-  }
-  return false;
+  return process.env.NEXT_PUBLIC_API_MODE === "demo";
 };
 
 // ------------------------------------------------------------- Demo fixtures

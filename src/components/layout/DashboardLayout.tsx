@@ -24,7 +24,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
   const [collapsed, setCollapsed] = useState(false); // desktop collapsed rail
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
 
   const nav = useMemo(() => resolveNav(pathname), [pathname]);
   const title = nav?.item.label ?? "Dashboard";

@@ -16,7 +16,7 @@ const links = [
 ];
 
 export function PatientPortalLayout({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const router = useRouter();
   const [ready, setReady] = useState(false);
 

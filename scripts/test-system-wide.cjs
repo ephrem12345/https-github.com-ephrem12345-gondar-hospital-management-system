@@ -33,12 +33,17 @@ async function runSystemWideTests() {
 
   // 4. Staff Login & RBAC Check
   console.log("[Test 4] Testing Doctor Login (RBAC & Auth)...");
+  const DOCTOR_PASSWORD = process.env.GHMS_TEST_DOCTOR_PASSWORD;
+  if (!DOCTOR_PASSWORD) {
+    console.error("ERROR: GHMS_TEST_DOCTOR_PASSWORD is not set. Set it and re-run.");
+    process.exit(1);
+  }
   const doctorLoginRes = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       identifier: "selam.girma@gondar-hospital.et",
-      password: "StaffPassword123",
+      password: DOCTOR_PASSWORD,
     }),
   });
   const doctorLoginData = await doctorLoginRes.json();

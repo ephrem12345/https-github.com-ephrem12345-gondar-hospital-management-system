@@ -73,6 +73,39 @@ describe("API client", () => {
     expect(fetchMock.mock.calls[1][0]).toEqual(expect.stringMatching(/\/auth\/refresh$/));
   });
 
+  it("refreshes and retries /auth/me when receiving a 401 unauthorized", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401, statusText: "Unauthorized" }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { id: "usr-1", role: "DOCTOR" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    globalThis.fetch = fetchMock;
+
+    await expect(apiClient.get<{ id: string; role: string }>("/auth/me", { skipCache: true })).resolves.toEqual({
+      id: "usr-1",
+      role: "DOCTOR",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toEqual(expect.stringMatching(/\/auth\/refresh$/));
+    expect(fetchMock.mock.calls[2][0]).toEqual(expect.stringMatching(/\/auth\/me(\?.*)?$/));
+  });
+
+  it("does not attempt refresh for /auth/login or /auth/refresh on 401", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: { message: "Invalid credentials" } }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }));
+    globalThis.fetch = fetchMock;
+
+    await expect(apiClient.post("/auth/login", { identifier: "wrong", password: "bad" })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("deduplicates concurrent in-flight GET requests and caches responses", async () => {
     let callCount = 0;
     globalThis.fetch = vi.fn().mockImplementation(async () => {

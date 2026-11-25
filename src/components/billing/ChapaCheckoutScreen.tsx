@@ -31,7 +31,7 @@ export function ChapaCheckoutScreen({ title }: { title: string }) {
   }, []);
 
   useEffect(() => {
-    const reference = params.get("chapa_ref") ?? params.get("chapa_simulated_pay");
+    const reference = params?.get("chapa_ref") ?? params?.get("chapa_simulated_pay");
     if (!reference) return;
     let attempts = 0;
     setVerification({ success: false, status: "PENDING" });

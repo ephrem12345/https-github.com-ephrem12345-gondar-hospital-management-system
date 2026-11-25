@@ -25,9 +25,28 @@ interface ApiEnvelope<T> {
 export interface RequestOptions extends RequestInit {
   skipCache?: boolean;
   ttlMs?: number;
+  timeoutMs?: number;
 }
 
-const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api/v1").replace(/\/+$/, "");
+export function normalizeApiUrl(raw: string): string {
+  let cleaned = (raw || "").trim().replace(/\/+$/, "");
+  if (!cleaned) return "http://localhost:4000/api/v1";
+  if (!cleaned.endsWith("/api/v1")) {
+    if (cleaned.endsWith("/api")) {
+      cleaned = `${cleaned}/v1`;
+    } else if (!cleaned.includes("/api/")) {
+      cleaned = `${cleaned}/api/v1`;
+    }
+  }
+  return cleaned;
+}
+
+const configuredUrl =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:4000/api/v1";
+
+export const apiBaseUrl = normalizeApiUrl(configuredUrl);
 let refreshInProgress: Promise<boolean> | undefined;
 
 interface CacheEntry<T> {
@@ -43,9 +62,19 @@ export function clearApiCache(): void {
   inFlightRequests.clear();
 }
 
-function isAuthEndpoint(path: string) {
+function shouldAttemptRefresh(path: string): boolean {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return normalized.startsWith("/auth/");
+  // Do not attempt token refresh for login, refresh itself, register, or password recovery endpoints
+  if (
+    normalized.startsWith("/auth/login") ||
+    normalized.startsWith("/auth/refresh") ||
+    normalized.startsWith("/auth/register") ||
+    normalized.startsWith("/auth/forgot-password") ||
+    normalized.startsWith("/auth/reset-password")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 async function refreshSession(): Promise<boolean> {
@@ -85,24 +114,49 @@ async function readError(response: Response): Promise<ApiError> {
 async function executeRequest<T>(url: string, path: string, init: RequestOptions): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
+  headers.set("X-Requested-With", "XMLHttpRequest");
   if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const request: RequestInit = { ...init, headers, credentials: "include" };
+
+  const timeoutMs = init.timeoutMs ?? 15_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (init.signal) {
+    init.signal.addEventListener("abort", () => controller.abort());
+  }
+
+  const request: RequestInit = {
+    ...init,
+    headers,
+    credentials: "include",
+    signal: controller.signal,
+  };
 
   let response: Response;
   try {
     response = await fetch(url, request);
-  } catch (error) {
+  } catch (error: unknown) {
+    clearTimeout(timeoutId);
     if (error instanceof ApiError) throw error;
+    if (error && typeof error === "object" && "name" in error && error.name === "AbortError") {
+      throw new ApiError(
+        `Connection timed out (${Math.round(timeoutMs / 1000)}s). The hospital server at ${apiBaseUrl} did not respond.`,
+        0,
+        "TIMEOUT",
+      );
+    }
     throw new ApiError(
       "Unable to connect to the hospital server. Please check your network and make sure the server is running.",
       0,
       "NETWORK_ERROR",
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
-  if (response.status === 401 && !isAuthEndpoint(path)) {
+  if (response.status === 401 && shouldAttemptRefresh(path)) {
     const refreshed = await refreshSession();
     if (refreshed) {
       try {
@@ -195,6 +249,66 @@ export function apiQuery(values: Record<string, string | number | boolean | unde
   return serialized ? `?${serialized}` : "";
 }
 
+export interface ConnectionDiagnostic {
+  backendReachable: boolean;
+  databaseReady: boolean;
+  apiUrl: string;
+  latencyMs: number;
+  message: string;
+}
+
+export async function checkBackendConnection(): Promise<ConnectionDiagnostic> {
+  const start = Date.now();
+  const rootApi = apiBaseUrl.replace(/\/api\/v1\/?$/, "");
+  try {
+    const healthResp = await fetch(`${rootApi}/api/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(4000),
+      headers: { Accept: "application/json" },
+    });
+    const latencyMs = Date.now() - start;
+    if (!healthResp.ok) {
+      return {
+        backendReachable: false,
+        databaseReady: false,
+        apiUrl: apiBaseUrl,
+        latencyMs,
+        message: `Backend returned HTTP status ${healthResp.status}`,
+      };
+    }
+
+    let databaseReady = false;
+    try {
+      const readyResp = await fetch(`${rootApi}/api/ready`, {
+        method: "GET",
+        signal: AbortSignal.timeout(4000),
+        headers: { Accept: "application/json" },
+      });
+      if (readyResp.ok) {
+        databaseReady = true;
+      }
+    } catch {}
+
+    return {
+      backendReachable: true,
+      databaseReady,
+      apiUrl: apiBaseUrl,
+      latencyMs,
+      message: databaseReady
+        ? "Connected and ready (Backend & Database operational)"
+        : "Backend reachable, but MySQL database is not ready",
+    };
+  } catch {
+    return {
+      backendReachable: false,
+      databaseReady: false,
+      apiUrl: apiBaseUrl,
+      latencyMs: Date.now() - start,
+      message: "Backend server is offline or connection was refused on port 4000",
+    };
+  }
+}
+
 export const apiClient = {
   get: <T>(
     path: string,
@@ -210,4 +324,5 @@ export const apiClient = {
   delete: <T>(path: string, options?: RequestOptions) =>
     apiRequest<T>(path, { ...options, method: "DELETE" }),
   clearCache: clearApiCache,
+  checkConnection: checkBackendConnection,
 };

@@ -39,7 +39,7 @@ A comprehensive inspection of the GHMS codebase was performed across frontend, b
 +----------------------------------------------------------------------------------------------------+
 | DATABASE (MySQL 8.0 / InnoDB Engine, utf8mb4)                                                      |
 |   - 85 Normalized Tables covering all clinical, diagnostic, pharmaceutical, financial, and admin   |
-|   - Seeded synthetic accounts across all 8 roles (StaffPassword123, TestPassword123)               |
+|   - Seeded synthetic accounts across all 8 roles (via GHMS_SEED_* environment variables)          |
 |   - ACID Transactions, Composite Unique Keys, Foreign Key Restrict & SetNull Integrity             |
 +----------------------------------------------------------------------------------------------------+
 ```

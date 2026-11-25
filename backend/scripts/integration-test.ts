@@ -26,6 +26,16 @@ async function runIntegrationSuite() {
   console.log("GHMS STAGE 5: FULL-STACK INTEGRATION & WORKFLOW VERIFICATION SUITE");
   console.log("======================================================================");
 
+  // Credentials are read from environment variables — never hardcode here.
+  const STAFF_PASSWORD = process.env.GHMS_TEST_STAFF_PASSWORD;
+  const PATIENT_PASSWORD = process.env.GHMS_TEST_PATIENT_PASSWORD;
+  if (!STAFF_PASSWORD || !PATIENT_PASSWORD) {
+    console.error(
+      "ERROR: GHMS_TEST_STAFF_PASSWORD and GHMS_TEST_PATIENT_PASSWORD must be set before running this script."
+    );
+    process.exit(1);
+  }
+
   let passed = 0;
   let failed = 0;
 
@@ -60,7 +70,7 @@ async function runIntegrationSuite() {
         phone: regPhone,
         email: regEmail,
         address: "Kebele 08, Gondar, Ethiopia",
-        password: "TestPassword123",
+        password: PATIENT_PASSWORD,
         termsAccepted: true,
       });
 
@@ -78,7 +88,7 @@ async function runIntegrationSuite() {
     assert(Boolean(dbUser?.patient?.patientNumber?.startsWith("GHMS-")), "Generated official GHMS patient identifier format");
 
     // Verify Bcrypt hash
-    const hashValid = await bcrypt.compare("TestPassword123", dbUser?.passwordHash ?? "");
+    const hashValid = await bcrypt.compare(PATIENT_PASSWORD, dbUser?.passwordHash ?? "");
     assert(hashValid, "Password hashed securely with Bcrypt (verified match)");
 
     // =========================================================================
@@ -88,7 +98,7 @@ async function runIntegrationSuite() {
     // 2.1 Receptionist login
     const recepLogin = await request(app)
       .post("/api/v1/auth/login")
-      .send({ identifier: "receptionist", password: "StaffPassword123" });
+      .send({ identifier: "receptionist", password: STAFF_PASSWORD });
     assert(recepLogin.status === 200, "Receptionist authentication successful");
     const recepCookie = extractCookie(recepLogin.headers["set-cookie"], "ghms_access");
 
@@ -178,7 +188,7 @@ async function runIntegrationSuite() {
     // 3.1 Doctor login
     const docLogin = await request(app)
       .post("/api/v1/auth/login")
-      .send({ identifier: "selam.girma", password: "StaffPassword123" });
+      .send({ identifier: "selam.girma", password: STAFF_PASSWORD });
     assert(docLogin.status === 200, "Doctor authentication successful");
     const docCookie = extractCookie(docLogin.headers["set-cookie"], "ghms_access");
 
@@ -483,7 +493,7 @@ async function runIntegrationSuite() {
 
     const patientLogin = await request(app)
       .post("/api/v1/auth/login")
-      .send({ identifier: regEmail, password: "TestPassword123" });
+      .send({ identifier: regEmail, password: PATIENT_PASSWORD });
     assert(patientLogin.status === 200, "Patient successfully authenticates to portal");
     const patientCookie = extractCookie(patientLogin.headers["set-cookie"], "ghms_access");
 
@@ -533,7 +543,7 @@ async function runIntegrationSuite() {
     console.log("\n--- WORKFLOW 9: Administration & Role Governance ---");
     const adminLogin = await request(app)
       .post("/api/v1/auth/login")
-      .send({ identifier: "admin", password: "StaffPassword123" });
+      .send({ identifier: "admin", password: STAFF_PASSWORD });
     assert(adminLogin.status === 200, "Administrator authentication successful");
     const adminCookie = extractCookie(adminLogin.headers["set-cookie"], "ghms_access");
 
@@ -572,7 +582,7 @@ async function runIntegrationSuite() {
     await measureEndpoint("Readiness Check (/api/v1/ready)", () => request(app).get("/api/v1/ready"));
     await measureEndpoint("Public Queue Display (/api/v1/queue/public)", () => request(app).get("/api/v1/queue/public"));
     await measureEndpoint("User Login Benchmark (/api/v1/auth/login)", () =>
-      request(app).post("/api/v1/auth/login").send({ identifier: "admin", password: "StaffPassword123" })
+      request(app).post("/api/v1/auth/login").send({ identifier: "admin", password: STAFF_PASSWORD })
     );
     await measureEndpoint("Portal Dashboard Bundle (/api/v1/portal/dashboard)", () =>
       request(app).get("/api/v1/portal/dashboard").set("Cookie", `ghms_access=${patientCookie}`)

@@ -37,7 +37,7 @@ export function SubscriptionScreen({ title }: { title: string }) {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    const reference = params.get("chapa_ref");
+    const reference = params?.get("chapa_ref");
     if (!reference) return;
     let attempts = 0;
     const timer = window.setInterval(async () => {

@@ -3,13 +3,26 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+// Passwords for verification are read from environment variables.
+// Set GHMS_TEST_STAFF_PASSWORD and GHMS_TEST_PATIENT_PASSWORD in backend/.env
+// (or the shell environment) before running this script.
+const STAFF_PASSWORD = process.env.GHMS_TEST_STAFF_PASSWORD ?? "";
+const PATIENT_PASSWORD = process.env.GHMS_TEST_PATIENT_PASSWORD ?? "";
+
+if (!STAFF_PASSWORD || !PATIENT_PASSWORD) {
+  console.error(
+    "ERROR: GHMS_TEST_STAFF_PASSWORD and GHMS_TEST_PATIENT_PASSWORD must be set before running this script."
+  );
+  process.exit(1);
+}
+
 const EXPECTED_ACCOUNTS = [
   {
     roleName: "Administrator",
     username: "admin",
     email: "abebe.bekele@gondar-hospital.et",
     expectedRole: "ADMINISTRATOR",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/overview",
   },
   {
@@ -17,7 +30,7 @@ const EXPECTED_ACCOUNTS = [
     username: "selam.girma",
     email: "selam.girma@gondar-hospital.et",
     expectedRole: "DOCTOR",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/opd",
   },
   {
@@ -25,7 +38,7 @@ const EXPECTED_ACCOUNTS = [
     username: "tigist.alemu",
     email: "tigist.alemu@gondar-hospital.et",
     expectedRole: "NURSE",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/vital-signs",
   },
   {
@@ -33,7 +46,7 @@ const EXPECTED_ACCOUNTS = [
     username: "getu.assefa",
     email: "getu.assefa@gondar-hospital.et",
     expectedRole: "LABORATORY_TECHNICIAN",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/laboratory",
   },
   {
@@ -41,7 +54,7 @@ const EXPECTED_ACCOUNTS = [
     username: "liya.tesfaye",
     email: "liya.tesfaye@gondar-hospital.et",
     expectedRole: "PHARMACIST",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/pharmacy",
   },
   {
@@ -49,7 +62,7 @@ const EXPECTED_ACCOUNTS = [
     username: "receptionist",
     email: "receptionist@gondar-hospital.et",
     expectedRole: "RECEPTIONIST",
-    testPassword: "StaffPassword123",
+    testPassword: STAFF_PASSWORD,
     expectedDestination: "/patient-registration",
   },
   {
@@ -57,7 +70,7 @@ const EXPECTED_ACCOUNTS = [
     username: "patient",
     email: "patient@gondar-hospital.et",
     expectedRole: "PATIENT",
-    testPassword: "TestPassword123",
+    testPassword: PATIENT_PASSWORD,
     expectedDestination: "/patient-portal",
   },
 ];

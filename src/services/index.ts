@@ -188,24 +188,47 @@ const USER_KEY = "ghms-user";
 const MOCK_REMEMBER_KEY = "ghms-remember";
 
 class BackendAuthService implements AuthService {
+  private checkSessionPromise: Promise<CurrentUser | null> | null = null;
+  /** In-memory authenticated user strictly verified by backend /auth/me or /auth/login */
+  private verifiedUser: CurrentUser | null = null;
+
   private storeUser(user: CurrentUser) {
+    this.verifiedUser = user;
     if (typeof window !== "undefined") {
       window.localStorage.setItem(USER_KEY, JSON.stringify(user));
     }
   }
 
+  private clearUser() {
+    this.verifiedUser = null;
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(USER_KEY);
+      window.sessionStorage.removeItem(USER_KEY);
+    }
+  }
+
   async checkSession(): Promise<CurrentUser | null> {
     if (typeof window === "undefined") return null;
-    try {
-      const user = await apiClient.get<CurrentUser>("/auth/me", { skipCache: true });
-      this.storeUser(user);
-      return user;
-    } catch {
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(USER_KEY);
+    if (this.checkSessionPromise) return this.checkSessionPromise;
+
+    this.checkSessionPromise = (async () => {
+      try {
+        const user = await apiClient.get<CurrentUser>("/auth/me", { skipCache: true });
+        if (user && user.id && user.role) {
+          this.storeUser(user);
+          return user;
+        }
+        this.clearUser();
+        return null;
+      } catch {
+        this.clearUser();
+        return null;
+      } finally {
+        this.checkSessionPromise = null;
       }
-      return null;
-    }
+    })();
+
+    return this.checkSessionPromise;
   }
 
   async login(identifier: string, password: string, remember = false, expectedRoles?: string[]) {
@@ -246,14 +269,15 @@ class BackendAuthService implements AuthService {
     try {
       await apiClient.post("/auth/logout");
     } finally {
+      this.clearUser();
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem(USER_KEY);
         window.sessionStorage.clear();
       }
     }
   }
 
   currentUser(): CurrentUser | null {
+    if (this.verifiedUser) return this.verifiedUser;
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem(USER_KEY);
     if (!raw) return null;
@@ -265,8 +289,9 @@ class BackendAuthService implements AuthService {
     }
   }
 
-  isAuthenticated() {
-    return this.currentUser() !== null;
+  isAuthenticated(): boolean {
+    // Strict Fail-Closed: Never consider the user authenticated unless verified by backend
+    return this.verifiedUser !== null;
   }
 }
 

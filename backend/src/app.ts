@@ -111,6 +111,11 @@ export function createApp(database: PrismaClient) {
       if (!origin) return callback(null, true);
       const normalized = origin.replace(/\/+$/, "");
       if (allowedOrigins.includes(normalized)) return callback(null, true);
+      if (env.NODE_ENV !== "production") {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) {
+          return callback(null, true);
+        }
+      }
       return callback(null, false);
     },
   }));
@@ -131,6 +136,19 @@ export function createApp(database: PrismaClient) {
   });
   app.use(pinoHttp({ logger, genReqId: (request) => (request as typeof request & { requestId: string }).requestId }));
 
+  // Route rewriting middleware: transparently route /api/... to /api/v1/... (preserving /api/docs and /api/openapi.json)
+  app.use((request, _response, next) => {
+    if (
+      request.url.startsWith("/api/") &&
+      !request.url.startsWith("/api/v1/") &&
+      !request.url.startsWith("/api/docs") &&
+      !request.url.startsWith("/api/openapi.json")
+    ) {
+      request.url = request.url.replace(/^\/api\//, "/api/v1/");
+    }
+    next();
+  });
+
   const limiterMessage = { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } };
   app.use("/api/v1", rateLimit({
     windowMs: env.RATE_LIMIT_WINDOW_MS,
@@ -148,7 +166,7 @@ export function createApp(database: PrismaClient) {
     message: { success: false, error: { code: "RATE_LIMITED", message: "Too many authentication attempts" } },
   });
 
-  app.get("/api/v1/health", (_request, response) => {
+  const healthHandler = (_request: express.Request, response: express.Response) => {
     const timestamp = new Date().toISOString();
     response.json({
       success: true,
@@ -157,8 +175,9 @@ export function createApp(database: PrismaClient) {
       timestamp,
       data: { status: "ok", service: "GHMS API", timestamp },
     });
-  });
-  app.get("/api/v1/ready", async (_request, response) => {
+  };
+
+  const readyHandler = async (_request: express.Request, response: express.Response) => {
     try {
       await database.$queryRaw`SELECT 1`;
       response.json({
@@ -176,7 +195,10 @@ export function createApp(database: PrismaClient) {
         error: { code: "NOT_READY", message: "Database is unavailable" },
       });
     }
-  });
+  };
+
+  app.all(["/health", "/api/health", "/api/v1/health"], healthHandler);
+  app.all(["/ready", "/api/ready", "/api/v1/ready"], readyHandler);
 
   app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApi));
   app.get("/api/openapi.json", (_request, response) => response.json(openApi));

@@ -2,15 +2,17 @@ const path = require("path");
 const { PrismaClient } = require(path.join(__dirname, "../backend/node_modules/@prisma/client"));
 const jwt = require(path.join(__dirname, "../backend/node_modules/jsonwebtoken"));
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: "mysql://ghms_user:ghms-local-dev@localhost:3306/ghms?connection_limit=20&pool_timeout=10",
-    },
-  },
-});
+// DATABASE_URL and JWT_ACCESS_SECRET are read from the environment (backend/.env).
+// Never hardcode secrets or database credentials here.
+const prisma = new PrismaClient();
 
-const JWT_SECRET = "SIYNKuqE4hLUFfqFbl5eVHIcUawQNBZ5vE0sunCNyXrNbwsSbc8G7vPov0xxiCTB";
+const JWT_SECRET = process.env.JWT_ACCESS_SECRET;
+if (!JWT_SECRET) {
+  console.error("ERROR: JWT_ACCESS_SECRET environment variable is not set.");
+  console.error("Load backend/.env before running this script, e.g.:");
+  console.error("  $env:JWT_ACCESS_SECRET = (Get-Content backend/.env | Select-String JWT_ACCESS_SECRET | ...) ");
+  process.exit(1);
+}
 const BASE_URL = "http://localhost:4000/api/v1";
 
 function signToken(user) {

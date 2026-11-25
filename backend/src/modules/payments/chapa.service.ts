@@ -442,4 +442,38 @@ export class ChapaPaymentService {
       },
     };
   }
+
+  async listPaymentHistory(actor: PaymentActor, query?: { limit?: number; offset?: number }) {
+    if (actor.role !== UserRole.SUPER_ADMIN && !actor.hospitalId) {
+      throw new HttpError(403, "No tenant association found for this user", "TENANT_REQUIRED");
+    }
+    const where: Prisma.PaymentWhereInput = {};
+    if (actor.role === UserRole.PATIENT && actor.patientId) {
+      where.invoice = { patientId: actor.patientId };
+    } else if (actor.hospitalId && actor.role !== UserRole.SUPER_ADMIN) {
+      where.hospitalId = actor.hospitalId;
+    }
+    const take = Math.min(query?.limit ?? 50, 100);
+    const skip = query?.offset ?? 0;
+    const [total, items] = await Promise.all([
+      this.db.payment.count({ where }),
+      this.db.payment.findMany({
+        where,
+        take,
+        skip,
+        orderBy: { receivedAt: "desc" },
+        include: {
+          invoice: {
+            select: {
+              invoiceNumber: true,
+              total: true,
+              status: true,
+              patient: { select: { patientNumber: true, firstName: true, lastName: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return { total, items };
+  }
 }
